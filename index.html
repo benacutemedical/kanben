@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Zen Kanban To-Do (Cloud)</title>
+  <style>
+    body{margin:0;font-family:sans-serif;background:#fafafa}
+    header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid #ddd}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px;display:flex;justify-content:space-between;align-items:center}
+    .btn{cursor:pointer;border:1px solid #ccc;background:#fff;padding:6px 12px;border-radius:6px}
+    .btn.primary{background:#000;color:#fff}
+    .boards{max-width:1100px;margin:24px auto;display:flex;flex-direction:column;gap:16px}
+    .board{border:1px solid #ddd;border-radius:12px;background:#fff}
+    .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
+    .columns{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px}
+    .column{border:1px dashed #ccc;border-radius:8px;min-height:120px;padding:6px;display:flex;flex-direction:column;gap:6px}
+    .task{border:1px solid #ddd;border-radius:8px;padding:8px;background:#fff;cursor:grab}
+    .task h3{margin:0 0 4px;font-size:14px}
+    dialog{border:none;padding:0;border-radius:12px;box-shadow:0 20px 80px rgba(0,0,0,.18);}
+    dialog::backdrop{background:rgba(0,0,0,.35)}
+    #taskDialog{width:min(900px,96vw);max-height:90vh;overflow:auto}
+    #taskDialog form{display:flex;flex-direction:column;gap:12px;padding:20px}
+    #taskDialog input,#taskDialog textarea{width:100%;box-sizing:border-box}
+    #taskDialog textarea{min-height:120px}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div>Zen Kanban (Cloud)</div>
+    <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
+  </div>
+</header>
+
+<main class="boards" id="boards"></main>
+
+<dialog id="taskDialog">
+  <form>
+    <input type="hidden" id="editId">
+    <label>Title</label><input id="title" required>
+    <label>Project</label><input id="project" required>
+    <label>Details</label><textarea id="details"></textarea>
+    <div class="actions" style="display:flex;justify-content:flex-end;gap:10px">
+      <button type="button" id="cancelCreate" class="btn">Cancel</button>
+      <button type="submit" class="btn primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<template id="boardTemplate">
+  <section class="board">
+    <div class="board-head"><h2 class="project-name"></h2></div>
+    <div class="columns"></div>
+  </section>
+</template>
+
+<template id="columnTemplate">
+  <div class="column"><div class="col-name" style="font-weight:bold;margin-bottom:4px"></div></div>
+</template>
+
+<template id="taskTemplate">
+  <article class="task"><h3 class="t-title"></h3><div class="t-details"></div></article>
+</template>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+  // 🔑 Replace with your Firebase config
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  const docRef = doc(db, "kanban", "shared"); // one doc for all boards
+
+  // ===== State =====
+  let state = { projects:{}, order:[] };
+
+  const boards=document.getElementById('boards');
+
+  // ===== Render =====
+  const render=()=>{
+    boards.innerHTML='';
+    state.order.forEach(name=>{
+      const p=state.projects[name];
+      if(!p) return;
+      const frag=document.getElementById('boardTemplate').content.cloneNode(true);
+      frag.querySelector('.project-name').textContent=p.name;
+      const cols=frag.querySelector('.columns');
+      p.columns.forEach(c=>{
+        const col=document.getElementById('columnTemplate').content.cloneNode(true);
+        col.querySelector('.col-name').textContent=c.name;
+        const colDiv=col.querySelector('.column');
+        Object.values(p.tasks).filter(t=>t.col===c.name).forEach(t=>{
+          const tf=document.getElementById('taskTemplate').content.cloneNode(true);
+          tf.querySelector('.t-title').textContent=t.title;
+          tf.querySelector('.t-details').textContent=t.details||'';
+          colDiv.appendChild(tf);
+        });
+        cols.appendChild(col);
+      });
+      boards.appendChild(frag);
+    });
+  };
+
+  // ===== Dialog =====
+  const dialog=document.getElementById('taskDialog');
+  document.getElementById('addTaskBtn').addEventListener('click',()=>{ 
+    document.getElementById('editId').value='';
+    document.getElementById('title').value='';
+    document.getElementById('project').value='';
+    document.getElementById('details').value='';
+    dialog.showModal();
+  });
+  document.getElementById('cancelCreate').addEventListener('click',()=>dialog.close());
+
+  dialog.querySelector('form').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const title=document.getElementById('title').value.trim();
+    const project=document.getElementById('project').value.trim();
+    const details=document.getElementById('details').value.trim();
+    if(!title||!project) return;
+
+    if(!state.projects[project]){
+      state.projects[project]={name:project,columns:[{name:"To Do"},{name:"In Progress"},{name:"Completed"}],tasks:{}};
+      state.order.push(project);
+    }
+    const id=Math.random().toString(36).slice(2,9);
+    state.projects[project].tasks[id]={id,title,details,col:"To Do"};
+
+    await setDoc(docRef,state);
+    dialog.close();
+  });
+
+  // ===== Firestore sync =====
+  onSnapshot(docRef,(snap)=>{
+    if(snap.exists()){ state=snap.data(); render(); }
+    else { setDoc(docRef,state); }
+  });
+</script>
+</body>
+</html>
