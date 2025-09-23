@@ -33,6 +33,9 @@
     .board.compact .t-links,
     .board.compact .t-attachments,
     .board.compact .checklist{display:none}
+    /* NEW: fully collapsed board hides all columns */
+    .board.collapsed .columns{display:none}
+
     dialog{border:none;padding:0;border-radius:16px;box-shadow:0 20px 80px rgba(0,0,0,.18);}
     dialog::backdrop{background:rgba(0,0,0,.35)}
     #taskDialog{width:min(1000px,96vw);max-height:90vh;overflow:auto}
@@ -92,7 +95,8 @@
           <h2 class="project-name" style="margin:0;font-size:18px"></h2>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <button class="toggle-view btn">🗖 Expanded</button>
+          <button class="collapse-toggle btn" title="Collapse/Expand">▾ Collapse</button>
+          <button class="toggle-view btn" title="Compact/Expanded">🗖 Expanded</button>
           <input type="color" class="boardColorPicker" title="Board header color">
           <button class="delete-board btn" title="Erase board">❌</button>
         </div>
@@ -217,12 +221,22 @@
         await save();
       });
 
-      // compact toggle
+      // compact toggle (hides details sections only)
       const toggleBtn = frag.querySelector('.toggle-view');
       b.classList.toggle('compact', !!p.compact);
       toggleBtn.textContent = p.compact ? '🗕 Compact' : '🗖 Expanded';
       toggleBtn.addEventListener('click', async () => {
         p.compact = !p.compact;
+        render(); // optimistic
+        await save();
+      });
+
+      // NEW: collapse/expand (hides columns entirely)
+      const collapseBtn = frag.querySelector('.collapse-toggle');
+      b.classList.toggle('collapsed', !!p.collapsed);
+      collapseBtn.textContent = p.collapsed ? '▸ Expand' : '▾ Collapse';
+      collapseBtn.addEventListener('click', async ()=>{
+        p.collapsed = !p.collapsed;
         render(); // optimistic
         await save();
       });
@@ -267,15 +281,21 @@
         colEl.dataset.colid = c.id;
         colEl.dataset.project = p.name;
 
-        // drop target for tasks
+        // drop target for tasks — make permissive for better browser compat
         colEl.addEventListener('dragover', e => {
-          if (e.dataTransfer.types.includes('text/task')) { e.preventDefault(); colEl.classList.add('drag-over'); }
+          e.preventDefault(); colEl.classList.add('drag-over');
         });
         colEl.addEventListener('dragleave', () => colEl.classList.remove('drag-over'));
         colEl.addEventListener('drop', async e => {
           e.preventDefault(); colEl.classList.remove('drag-over');
-          const tid = e.dataTransfer.getData('text/task');
-          const srcName = e.dataTransfer.getData('text/project');
+
+          // robust payload (JSON fallback to legacy)
+          let tid, srcName;
+          const plain = e.dataTransfer.getData('text/plain');
+          try { const obj = JSON.parse(plain); tid = obj?.tid; srcName = obj?.project; } catch {}
+          if (!tid) tid = e.dataTransfer.getData('text/task');
+          if (!srcName) srcName = e.dataTransfer.getData('text/project');
+
           const srcP = state.projects[srcName];
           if (!srcP || !srcP.tasks || !srcP.tasks[tid]) return;
 
@@ -346,7 +366,7 @@
         cb.addEventListener('change', async () => {
           item.done = cb.checked;
           lbl.classList.toggle('done', cb.checked);
-          render(); // optimistic (keeps UI in sync)
+          render(); // optimistic
           await save();
         });
         lbl.append(cb, document.createTextNode(item.text));
@@ -395,8 +415,10 @@
         openEditDialog(p, t);
       });
 
-      // drag
+      // drag — set a robust plain-text JSON payload AND legacy keys
       card.addEventListener('dragstart', e => {
+        const payload = JSON.stringify({ tid: t.id, project: p.name });
+        e.dataTransfer.setData('text/plain', payload);
         e.dataTransfer.setData('text/task', t.id);
         e.dataTransfer.setData('text/project', p.name);
       });
@@ -416,7 +438,7 @@
         const sample = {
           name:'Sample Project',
           columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],
-          tasks:{}, color:'#eaeaea', compact:false
+          tasks:{}, color:'#eaeaea', compact:false, collapsed:false
         };
         const tid = uid();
         sample.tasks[tid] = {
@@ -439,7 +461,7 @@
       if (e.target?.id === 'addCheckBtn') { e.preventDefault(); addCheckInput(''); }
     });
 
-    // ===== Form submit (create/update) =====
+    // ===== Form submit (create/update) — CLOSES DIALOG on success or error =====
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('editId').value;
@@ -462,7 +484,7 @@
       // ensure project exists
       let proj = state.projects[projectName];
       if (!proj) {
-        proj = { name:projectName, columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}], tasks:{}, color:'#eaeaea', compact:false };
+        proj = { name:projectName, columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}], tasks:{}, color:'#eaeaea', compact:false, collapsed:false };
         state.projects[projectName] = proj;
         if (!state.order.includes(projectName)) state.order.push(projectName);
       }
@@ -490,7 +512,7 @@
         render();           // optimistic
         await save();       // persist
       } finally {
-        dialog.close();     // always close (even if save failed)
+        dialog.close();     // always close
       }
     });
 
