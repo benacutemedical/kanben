@@ -1,420 +1,485 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Zen Kanban To-Do</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Zen Kanban To-Do (Cloud)</title>
   <style>
-    :root{ --bg:#fff; --card:#fff; --ink:#000; --muted:#555; --line:#e0e0e0; --radius:16px; --shadow:0 2px 10px rgba(0,0,0,.05); }
+    :root{--radius:12px}
     *{box-sizing:border-box}
-    body{margin:0;font-family:sans-serif;color:var(--ink);background:var(--bg)}
-    header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}
-    .wrap{max-width:1100px;margin:0 auto;padding:16px}
-    .toolbar{display:flex;align-items:center;justify-content:space-between}
-    .btn{cursor:pointer;border:1px solid var(--line);background:#fff;padding:6px 12px;border-radius:8px}
-    .btn.primary{background:#000;color:#fff}
+    body{margin:0;font-family:sans-serif;background:#fafafa;color:#111}
+    header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid #ddd}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px;display:flex;justify-content:space-between;align-items:center}
+    .btn{cursor:pointer;border:1px solid #ccc;background:#fff;padding:6px 12px;border-radius:8px}
+    .btn.primary{background:#000;color:#fff;border-color:#000}
     .boards{max-width:1100px;margin:24px auto;display:flex;flex-direction:column;gap:16px}
-    .board{border:1px solid var(--line);border-radius:16px;background:var(--card)}
-    .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid var(--line)}
-    .index-badge{border:1px solid var(--line);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px}
-    .project-logo{max-height:120px;border-radius:6px;border:1px solid var(--line)}
+    .board{border:1px solid #ddd;border-radius:var(--radius);background:#fff}
+    .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
     .columns{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px}
-    .column{border:1px dashed var(--line);border-radius:10px;min-height:120px;padding:6px;display:flex;flex-direction:column;gap:6px}
-    .task{border:1px solid var(--line);border-radius:10px;padding:6px;background:#fff;cursor:grab;position:relative}
-    .task h3{margin:0;font-size:14px}
-    .delete-btn{position:absolute;top:2px;right:2px;cursor:pointer;border:none;background:none;color:#900}
-    .t-links a{display:block;font-size:12px;word-break:break-all}
-    .t-attachments img{max-height:60px;margin-top:4px}
-    .t-attachments a{display:block;font-size:12px;margin-top:4px}
-    .checklist{margin:6px 0}
-    .checklist label{display:flex;align-items:center;font-size:12px;gap:6px;margin:2px 0}
-    .checklist label.done{color:var(--muted); text-decoration:line-through}
-    .collapsed .columns{display:none}
-    .link-input, .check-input{display:flex;gap:6px;margin:6px 0}
-    .link-input input, .check-input input{flex:1}
+    .column{border:1px dashed #ccc;border-radius:10px;min-height:140px;padding:6px;display:flex;flex-direction:column;gap:6px}
+    .column.drag-over{background:#eef6ff;border-color:#2b78ff}
+    .task{border:1px solid #ddd;border-radius:10px;padding:8px;background:#fff;cursor:grab;position:relative}
+    .task h3{margin:0 0 4px;font-size:14px}
+    .delete-btn{position:absolute;top:2px;right:2px;border:none;background:none;color:#a00;font-size:16px;cursor:pointer}
+    .t-links a{display:block;font-size:12px;word-break:break-all;color:#0b67c2}
+    .t-attachments img{max-width:100px;max-height:80px;border:1px solid #ddd;border-radius:6px}
+    .t-attachments a{display:inline-block;font-size:12px}
+    .checklist label{display:flex;align-items:center;gap:6px;font-size:12px}
+    .checklist label.done{color:#777;text-decoration:line-through}
+    .timer{font-size:12px;display:block;margin-top:4px}
+    .assignee-badge{display:flex;align-items:center;gap:6px;margin-top:6px}
+    .avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:bold;background:#555;overflow:hidden;background-size:cover;background-position:center}
+    .compact .t-details,.compact .t-links,.compact .t-attachments,.compact .checklist{display:none}
     dialog{border:none;padding:0;border-radius:16px;box-shadow:0 20px 80px rgba(0,0,0,.18);}
     dialog::backdrop{background:rgba(0,0,0,.35)}
-    #taskDialog{width:min(1100px,96vw); max-height:90vh; overflow:auto}
-    #taskDialog form{display:flex;flex-direction:column;gap:18px;padding:24px}
-    #taskDialog label{display:block;margin:6px 0 4px;font-weight:bold}
-    #taskDialog input, #taskDialog textarea, #taskDialog button{margin-top:4px}
-    #linksContainer, #attachmentsContainer, #checklistContainer{margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:8px}
-    #linksContainer label, #attachmentsContainer label, #checklistContainer label{margin-top:0}
-    #taskDialog textarea{min-height:120px;width:100%}
+    #taskDialog{width:min(1000px,96vw);max-height:90vh;overflow:auto}
+    #taskDialog form{display:flex;flex-direction:column;gap:12px;padding:20px}
+    #taskDialog input,#taskDialog textarea{width:100%}
+    #taskDialog textarea{min-height:160px}
+    #linksContainer,#checklistContainer{padding:10px;border:1px solid #ccc;border-radius:8px}
+    .link-input,.check-input{display:flex;gap:6px;margin-top:6px}
+    .link-input input,.check-input input{flex:1}
     #taskDialog .actions{display:flex;justify-content:flex-end;gap:10px}
-    hr{border:none;border-top:1px solid var(--line);margin:12px 0}
-    .assignee-avatar{width:20px;height:20px;border-radius:50%;object-fit:cover;margin-right:4px}
   </style>
 </head>
 <body>
   <header>
-    <div class="wrap toolbar">
-      <div>Zen Kanban To-Do</div>
+    <div class="wrap">
+      <div>Zen Kanban (Cloud)</div>
       <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
     </div>
   </header>
 
   <main class="boards" id="boards"></main>
-<script type="module">
+
+  <!-- Create/Edit Task -->
+  <dialog id="taskDialog">
+    <form>
+      <input type="hidden" id="editId">
+      <input type="hidden" id="editProject">
+      <label>Title</label><input id="title" required>
+      <label>Project</label><input id="project" required>
+      <label>Assignee</label><input id="assignee" placeholder="Optional">
+      <label>Assignee Colour</label><input type="color" id="assigneeColor" value="#555555">
+      <label>Avatar URL</label><input id="avatarUrl" placeholder="https://...">
+      <label>Avatar Upload</label><input type="file" id="avatarFile" accept="image/*">
+      <label>Details</label><textarea id="details"></textarea>
+      <label>Attachments</label><input type="file" id="attachments" multiple>
+      <div id="linksContainer">
+        <label>Links</label>
+        <button type="button" id="addLinkBtn" class="btn">Add Link</button>
+      </div>
+      <div id="checklistContainer">
+        <label>Tasks</label>
+        <button type="button" id="addCheckBtn" class="btn">Add Item</button>
+      </div>
+      <div class="actions">
+        <button type="button" id="cancelCreate" class="btn">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- TEMPLATES -->
+  <template id="boardTemplate">
+    <section class="board" draggable="true">
+      <div class="board-head">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="index-badge"></span>
+          <h2 class="project-name" style="margin:0;font-size:18px"></h2>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="toggle-view btn">🗖 Expanded</button>
+          <input type="color" class="boardColorPicker" title="Board header color">
+          <button class="delete-board btn" title="Erase board">❌</button>
+        </div>
+      </div>
+      <div class="columns"></div>
+    </section>
+  </template>
+
+  <template id="columnTemplate">
+    <div class="column"><div class="col-name" style="font-weight:bold;margin-bottom:4px"></div></div>
+  </template>
+
+  <template id="taskTemplate">
+    <article class="task" draggable="true">
+      <button class="delete-btn" title="Delete task">✖</button>
+      <h3 class="t-title"></h3>
+      <div class="t-details"></div>
+      <div class="t-links"></div>
+      <div class="t-attachments"></div>
+      <div class="checklist"></div>
+      <span class="timer"></span>
+      <div class="assignee-badge"></div>
+    </article>
+  </template>
+
+  <!-- APP -->
+  <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
   import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-  // 🔥 Your Firebase config
-  const firebaseConfig = {
-    apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
-    authDomain: "kanben-acutesoft.firebaseapp.com",
-    projectId: "kanben-acutesoft",
-    storageBucket: "kanben-acutesoft.firebasestorage.app",
-    messagingSenderId: "637159945341",
-    appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
-    measurementId: "G-GND9Q3PN18"
-  };
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  const docRef = doc(db, "kanban", "shared");
+  window.addEventListener('DOMContentLoaded', () => {
+    // ===== Firebase =====
+    const firebaseConfig = {
+      apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
+      authDomain: "kanben-acutesoft.firebaseapp.com",
+      projectId: "kanben-acutesoft",
+      storageBucket: "kanben-acutesoft.firebasestorage.app",
+      messagingSenderId: "637159945341",
+      appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
+      measurementId: "G-GND9Q3PN18"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const docRef = doc(db, "kanban", "shared");
 
-  // ===== State & persistence =====
-  const state={projects:{},order:[]};
-  const uid=()=>Math.random().toString(36).slice(2,9);
-  const save = async () => {
-    try {
-      await setDoc(docRef, JSON.parse(JSON.stringify(state)), { merge: true });
-      console.log('[kanban] saved');
-    } catch (err) {
-      console.error('[kanban] save failed', err);
-    }
-  };
+    // ===== State & helpers =====
+    const state = { projects:{}, order:[] };
+    const uid = () => Math.random().toString(36).slice(2,9);
+    const save = async () => {
+      try {
+        await setDoc(docRef, JSON.parse(JSON.stringify(state)), { merge:true });
+        console.log('[kanban] saved');
+      } catch (e) { console.error('[kanban] save failed', e); }
+    };
 
-  // ===== Sync Firestore -> UI =====
-  onSnapshot(docRef, snap=>{
-    if(snap.exists()){
-      Object.assign(state, snap.data());
-      render();
-    } else {
-      // Bootstrap initial sample if nothing exists
-      const sample={name:'Sample Project',columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],tasks:{},color:'#eaeaea',compact:false};
-      const tid=uid();
-      sample.tasks[tid]={id:tid,title:'Example Task',details:'Edit me to get started',assignee:'You',assigneeColor:'#555',links:['example.com'],attachments:[],checklist:[{text:'First step',done:false}],createdAt:Date.now(),colId:sample.columns[0].id};
-      state.projects[sample.name]=sample; state.order=[sample.name];
-      save();
-    }
-  });
+    const boards = document.getElementById('boards');
+    const dialog = document.getElementById('taskDialog');
+    const form = dialog.querySelector('form');
 
-  // ===== Rendering =====
-  const boards=document.getElementById('boards');
+    // ===== UI helpers for dialog =====
+    const addLinkInput = (value) => {
+      const container = document.getElementById('linksContainer');
+      const div = document.createElement('div'); div.className='link-input';
+      const input = document.createElement('input'); input.type='text'; input.placeholder='website.com'; input.value=value||'';
+      const btn = document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove());
+      div.append(input, btn); container.appendChild(div);
+    };
+    const addCheckInput = (value) => {
+      const container = document.getElementById('checklistContainer');
+      const div = document.createElement('div'); div.className='check-input';
+      const input = document.createElement('input'); input.type='text'; input.placeholder='Task item'; input.value=value||'';
+      const btn = document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove());
+      div.append(input, btn); container.appendChild(div);
+    };
 
-  const render=()=>{
-    boards.innerHTML='';
-    state.order.forEach((name,idx)=>{
-      const p=state.projects[name];
-      if(p){ boards.appendChild(renderBoard(p,idx)); }
-    });
-  };
+    const openEditDialog = (project, t) => {
+      form.reset();
+      document.getElementById('linksContainer').innerHTML = '<label>Links</label> <button type="button" id="addLinkBtn" class="btn">Add Link</button>';
+      document.getElementById('checklistContainer').innerHTML = '<label>Tasks</label> <button type="button" id="addCheckBtn" class="btn">Add Item</button>';
+      document.getElementById('attachments').value = null;
+      document.getElementById('avatarFile').value = null;
 
-  const renderBoard=(p,idx)=>{
-    const frag=document.getElementById('boardTemplate').content.cloneNode(true);
-    const b=frag.querySelector('.board'); b.dataset.project=p.name;
-    const head=frag.querySelector('.board-head');
-    frag.querySelector('.index-badge').textContent=idx+1;
-    const titleEl=frag.querySelector('.project-name'); titleEl.textContent=p.name;
+      document.getElementById('editId').value = t?.id || '';
+      document.getElementById('editProject').value = project?.name || '';
+      document.getElementById('title').value = t?.title || '';
+      document.getElementById('project').value = project?.name || '';
+      document.getElementById('assignee').value = t?.assignee || '';
+      document.getElementById('assigneeColor').value = t?.assigneeColor || '#555555';
+      document.getElementById('avatarUrl').value = t?.avatarUrl || '';
+      (t?.links||[]).forEach(l=>addLinkInput(l));
+      (t?.checklist||[]).forEach(item=>addCheckInput(item.text));
+      document.getElementById('details').value = t?.details || '';
 
-    // Header color
-    head.style.background = p.color || '#eaeaea';
-    const picker=frag.querySelector('.boardColorPicker');
-    picker.value = p.color || '#eaeaea';
-    picker.addEventListener('input', async ()=>{
-      p.color = picker.value;
-      head.style.background = p.color;
-      await save();
-    });
+      dialog.showModal();
+    };
 
-    // Compact / Expanded (persisted)
-    const toggleBtn=frag.querySelector('.toggle-view');
-    b.classList.toggle('compact', !!p.compact);
-    toggleBtn.textContent = p.compact ? '🗕 Compact' : '🗖 Expanded';
-    toggleBtn.addEventListener('click', async ()=>{
-      p.compact = !p.compact;
-      b.classList.toggle('compact', p.compact);
+    // ===== Render =====
+    const render = () => {
+      boards.innerHTML = '';
+      state.order.forEach((name, idx) => {
+        const p = state.projects[name];
+        if (p) boards.appendChild(renderBoard(p, idx));
+      });
+    };
+
+    const renderBoard = (p, idx) => {
+      const frag = document.getElementById('boardTemplate').content.cloneNode(true);
+      const b = frag.querySelector('.board');
+      const head = frag.querySelector('.board-head');
+      b.dataset.project = p.name;
+      frag.querySelector('.index-badge').textContent = idx + 1;
+      frag.querySelector('.project-name').textContent = p.name;
+
+      // header color
+      head.style.background = p.color || '#eaeaea';
+      const picker = frag.querySelector('.boardColorPicker');
+      picker.value = p.color || '#eaeaea';
+      picker.addEventListener('input', async () => {
+        p.color = picker.value;
+        head.style.background = p.color;
+        await save();
+      });
+
+      // compact toggle
+      const toggleBtn = frag.querySelector('.toggle-view');
+      b.classList.toggle('compact', !!p.compact);
       toggleBtn.textContent = p.compact ? '🗕 Compact' : '🗖 Expanded';
-      await save();
-    });
+      toggleBtn.addEventListener('click', async () => {
+        p.compact = !p.compact;
+        b.classList.toggle('compact', p.compact);
+        toggleBtn.textContent = p.compact ? '🗕 Compact' : '🗖 Expanded';
+        await save();
+      });
 
-    // Delete board (GODMODE!)
-    frag.querySelector('.delete-board').addEventListener('click', async ()=>{
-      const pwd=prompt("Enter GODMODE! password to erase this board");
-      if(pwd!=="GODMODE!") return;
-      delete state.projects[p.name];
-      state.order = state.order.filter(n=>n!==p.name);
-      await save();
-    });
+      // delete board (GODMODE!)
+      frag.querySelector('.delete-board').addEventListener('click', async () => {
+        const pwd = prompt("Enter GODMODE! password to erase this board");
+        if (pwd !== "GODMODE!") return;
+        delete state.projects[p.name];
+        state.order = state.order.filter(n => n !== p.name);
+        await save();
+      });
 
-    // Board reorder (drag whole board)
-    b.addEventListener('dragstart',e=>{
-      e.dataTransfer.setData('text/board', p.name);
-    });
-    b.addEventListener('dragover',e=>{
-      if(e.dataTransfer.types.includes('text/board')) e.preventDefault();
-    });
-    b.addEventListener('drop', async e=>{
-      const from = e.dataTransfer.getData('text/board');
-      const to = p.name;
-      if(from && from!==to){
-        const arr=state.order;
-        const i1=arr.indexOf(from), i2=arr.indexOf(to);
-        if(i1>-1 && i2>-1){
-          arr.splice(i2,0,arr.splice(i1,1)[0]);
+      // board reorder (drag whole board)
+      b.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/board', p.name);
+      });
+      b.addEventListener('dragover', e => {
+        if (e.dataTransfer.types.includes('text/board')) e.preventDefault();
+      });
+      b.addEventListener('drop', async e => {
+        const from = e.dataTransfer.getData('text/board');
+        const to = p.name;
+        if (from && from !== to) {
+          const arr = state.order;
+          const i1 = arr.indexOf(from), i2 = arr.indexOf(to);
+          if (i1 > -1 && i2 > -1) {
+            arr.splice(i2, 0, arr.splice(i1, 1)[0]);
+            await save();
+          }
+        }
+      });
+
+      // columns
+      const cols = frag.querySelector('.columns');
+      p.columns.forEach(c => {
+        const col = document.getElementById('columnTemplate').content.cloneNode(true);
+        const colEl = col.querySelector('.column');
+        col.querySelector('.col-name').textContent = c.name;
+        colEl.dataset.colid = c.id;
+        colEl.dataset.project = p.name;
+
+        // drop target for tasks
+        colEl.addEventListener('dragover', e => {
+          if (e.dataTransfer.types.includes('text/task')) { e.preventDefault(); colEl.classList.add('drag-over'); }
+        });
+        colEl.addEventListener('dragleave', () => colEl.classList.remove('drag-over'));
+        colEl.addEventListener('drop', async e => {
+          e.preventDefault(); colEl.classList.remove('drag-over');
+          const tid = e.dataTransfer.getData('text/task');
+          const srcName = e.dataTransfer.getData('text/project');
+          const srcP = state.projects[srcName];
+          if (!srcP || !srcP.tasks || !srcP.tasks[tid]) return;
+          if (c.name === "Completed") {
+            const pwd = prompt("Enter GODMODE! password to move task to Completed");
+            if (pwd !== "GODMODE!") return;
+          }
+          const task = srcP.tasks[tid];
+          // move across boards if necessary
+          if (srcName !== p.name) {
+            delete srcP.tasks[tid];
+            if (!p.tasks) p.tasks = {};
+            p.tasks[tid] = task;
+          }
+          task.colId = c.id;
+          await save();
+        });
+
+        // tasks for this col
+        Object.values(p.tasks || {}).forEach(t => {
+          const targetCol = t.colId || p.columns[0].id;
+          if (targetCol === c.id) colEl.appendChild(renderTask(p, t));
+        });
+
+        cols.appendChild(col);
+      });
+
+      return frag;
+    };
+
+    const renderTask = (p, t) => {
+      const frag = document.getElementById('taskTemplate').content.cloneNode(true);
+      const card = frag.querySelector('.task');
+      card.dataset.id = t.id;
+      frag.querySelector('.t-title').textContent = t.title;
+      frag.querySelector('.t-details').textContent = t.details || '';
+
+      // links
+      const linksDiv = frag.querySelector('.t-links');
+      (t.links || []).forEach(l => {
+        const a = document.createElement('a');
+        a.href = /^https?:\/\//i.test(l) ? l : 'https://' + l;
+        a.textContent = l; a.target = '_blank';
+        linksDiv.appendChild(a);
+      });
+
+      // attachments (session previews if uploaded)
+      const attDiv = frag.querySelector('.t-attachments');
+      (t.attachments || []).forEach(att => {
+        if (att.type && att.type.startsWith('image/')) {
+          const img = document.createElement('img'); img.src = att.url; img.alt = att.name || 'image';
+          attDiv.appendChild(img);
+        } else {
+          const a = document.createElement('a'); a.href = att.url; a.target='_blank'; a.textContent = att.name || 'Attachment';
+          attDiv.appendChild(a);
+        }
+      });
+
+      // checklist
+      const cl = frag.querySelector('.checklist');
+      (t.checklist || []).forEach(item => {
+        const lbl = document.createElement('label');
+        if (item.done) lbl.classList.add('done');
+        const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = !!item.done;
+        cb.addEventListener('change', async () => {
+          item.done = cb.checked;
+          lbl.classList.toggle('done', cb.checked);
+          await save();
+        });
+        lbl.append(cb, document.createTextNode(item.text));
+        cl.appendChild(lbl);
+      });
+
+      // timer
+      const timerEl = frag.querySelector('.timer');
+      const tick = () => {
+        if (!t.createdAt) return;
+        const elapsed = Date.now() - t.createdAt;
+        const days = Math.floor(elapsed / 86400000);
+        const hours = Math.floor((elapsed % 86400000) / 3600000);
+        const minutes = Math.floor((elapsed % 3600000) / 60000);
+        timerEl.textContent = `⏱ ${days}d ${hours}h ${minutes}m`;
+        if (elapsed > 86400000) { // >24h
+          const red = Math.min(255, 100 + days * 30);
+          timerEl.style.color = `rgb(${red},0,0)`;
+        }
+      };
+      tick(); setInterval(tick, 60000);
+
+      // assignee badge
+      const badge = frag.querySelector('.assignee-badge');
+      if (t.assignee) {
+        const av = document.createElement('div'); av.className = 'avatar';
+        if (t.avatarUrl) { av.style.backgroundImage = `url(${t.avatarUrl})`; av.style.backgroundColor = 'transparent'; }
+        else { av.textContent = (t.assignee[0]||'?').toUpperCase(); av.style.backgroundColor = t.assigneeColor || '#555'; }
+        const name = document.createElement('span'); name.textContent = t.assignee;
+        badge.append(av, name);
+      }
+
+      // delete
+      frag.querySelector('.delete-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (confirm('Delete this task?')) {
+          delete p.tasks[t.id];
           await save();
         }
-      }
-    });
-
-    // Columns + tasks
-    const cols=frag.querySelector('.columns');
-    p.columns.forEach(c=>{
-      const col=document.getElementById('columnTemplate').content.cloneNode(true);
-      const colEl=col.querySelector('.column'); colEl.dataset.colid=c.id; colEl.dataset.project=p.name;
-      col.querySelector('.col-name').textContent=c.name;
-
-      // Drop target for tasks (supports cross-board)
-      colEl.addEventListener('dragover',e=>{
-        if(e.dataTransfer.types.includes('text/task')){ e.preventDefault(); colEl.classList.add('drag-over'); }
-      });
-      colEl.addEventListener('dragleave',()=>colEl.classList.remove('drag-over'));
-      colEl.addEventListener('drop', async e=>{
-        e.preventDefault(); colEl.classList.remove('drag-over');
-        const tid = e.dataTransfer.getData('text/task');
-        const srcProjName = e.dataTransfer.getData('text/project');
-        if(!tid) return;
-        const srcP = state.projects[srcProjName] || p;
-        const task = srcP?.tasks?.[tid];
-        if(!task) return;
-
-        // GODMODE to move into Completed
-        if(c.name==="Completed"){
-          const pwd=prompt("Enter GODMODE! password to move task to Completed");
-          if(pwd!=="GODMODE!") return;
-        }
-
-        // Move across boards if needed
-        if(srcP.name !== p.name){
-          delete srcP.tasks[tid];
-          if(!p.tasks) p.tasks={};
-          p.tasks[tid] = task;
-        }
-        task.colId = c.id;
-        await save();
       });
 
-      // Render tasks for this column
-      Object.values(p.tasks||{}).forEach(t=>{
-        const columnId = t.colId || p.columns[0].id;
-        if(columnId === c.id){
-          colEl.appendChild(renderTask(p,t));
-        }
+      // edit
+      card.addEventListener('click', e => {
+        if (e.target.classList.contains('delete-btn')) return;
+        openEditDialog(p, t);
       });
 
-      cols.appendChild(col);
-    });
-
-    return frag;
-  };
-
-  const renderTask=(p,t)=>{
-    const frag=document.getElementById('taskTemplate').content.cloneNode(true);
-    const card=frag.querySelector('.task'); card.dataset.id=t.id;
-
-    // Title & details
-    frag.querySelector('.t-title').textContent=t.title;
-    frag.querySelector('.t-details').textContent=t.details||'';
-
-    // Links (no https required)
-    const linksDiv=frag.querySelector('.t-links');
-    (t.links||[]).forEach(l=>{
-      const a=document.createElement('a');
-      a.href = /^https?:\/\//i.test(l) ? l : 'https://'+l;
-      a.textContent = l; a.target='_blank';
-      linksDiv.appendChild(a);
-    });
-
-    // Attachments (session-only previews if uploaded)
-    const attDiv=frag.querySelector('.t-attachments');
-    (t.attachments||[]).forEach(att=>{
-      if(att.type && att.type.startsWith('image/')){
-        const img=document.createElement('img'); img.src=att.url; img.alt=att.name||'image';
-        attDiv.appendChild(img);
-      } else {
-        const a=document.createElement('a'); a.href=att.url; a.target='_blank'; a.textContent=att.name||'Attachment';
-        attDiv.appendChild(a);
-      }
-    });
-
-    // Checklist ("Tasks")
-    const cl=frag.querySelector('.checklist');
-    (t.checklist||[]).forEach(item=>{
-      const lbl=document.createElement('label');
-      if(item.done) lbl.classList.add('done');
-      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!item.done;
-      cb.addEventListener('change', async ()=>{
-        item.done = cb.checked;
-        lbl.classList.toggle('done', cb.checked);
-        await save();
+      // drag
+      card.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/task', t.id);
+        e.dataTransfer.setData('text/project', p.name);
       });
-      lbl.appendChild(cb);
-      lbl.appendChild(document.createTextNode(item.text));
-      cl.appendChild(lbl);
-    });
 
-    // Timer (redder after 24h; brighter each day)
-    const timerEl=frag.querySelector('.timer');
-    const tick=()=>{
-      if(!t.createdAt) return;
-      const elapsed=Date.now()-t.createdAt;
-      const days=Math.floor(elapsed/86400000);
-      const hours=Math.floor((elapsed%86400000)/3600000);
-      const minutes=Math.floor((elapsed%3600000)/60000);
-      timerEl.textContent=`⏱ ${days}d ${hours}h ${minutes}m`;
-      if(elapsed>86400000){ // > 24h
-        const red=Math.min(255,100+days*30);
-        timerEl.style.color=`rgb(${red},0,0)`;
-      }
+      return frag;
     };
-    tick(); setInterval(tick,60000);
 
-    // Assignee badge (color/initials or avatar url)
-    const badge=frag.querySelector('.assignee-badge');
-    if(t.assignee){
-      const av=document.createElement('div'); av.className='avatar';
-      if(t.avatarUrl){ av.style.backgroundImage=`url(${t.avatarUrl})`; av.style.backgroundColor='transparent'; }
-      else { av.textContent=(t.assignee[0]||'?').toUpperCase(); av.style.backgroundColor=t.assigneeColor||'#555'; }
-      const nameSpan=document.createElement('span'); nameSpan.textContent=t.assignee;
-      badge.appendChild(av); badge.appendChild(nameSpan);
-    }
-
-    // Delete task
-    frag.querySelector('.delete-btn').addEventListener('click', async (e)=>{
-      e.stopPropagation();
-      if(confirm('Delete this task?')){
-        delete p.tasks[t.id];
-        await save();
+    // ===== Firestore -> state bootstrap =====
+    onSnapshot(docRef, snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        state.projects = data.projects || {};
+        state.order = data.order || Object.keys(state.projects);
+        render();
+      } else {
+        // create initial doc
+        const sample = {
+          name:'Sample Project',
+          columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],
+          tasks:{}, color:'#eaeaea', compact:false
+        };
+        const tid = uid();
+        sample.tasks[tid] = {
+          id:tid, title:'Example Task', details:'Edit me to get started',
+          assignee:'You', assigneeColor:'#555', links:['example.com'],
+          attachments:[], checklist:[{text:'First step',done:false}],
+          createdAt:Date.now(), colId: sample.columns[0].id
+        };
+        state.projects[sample.name] = sample; state.order = [sample.name];
+        save();
       }
     });
 
-    // Edit task
-    card.addEventListener('click',e=>{
-      if(e.target.classList.contains('delete-btn')) return;
-      openEditDialog(p,t);
+    // ===== Global listeners (AFTER functions exist) =====
+    document.getElementById('addTaskBtn').addEventListener('click', () => openEditDialog());
+    document.getElementById('cancelCreate').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (e) => {
+      if (e.target?.id === 'addLinkBtn') { e.preventDefault(); addLinkInput(''); }
+      if (e.target?.id === 'addCheckBtn') { e.preventDefault(); addCheckInput(''); }
     });
 
-    // Drag task (supports cross-board)
-    card.addEventListener('dragstart',e=>{
-      e.dataTransfer.setData('text/task', t.id);
-      e.dataTransfer.setData('text/project', p.name);
-    });
+    // ===== Form submit (create/update) =====
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('editId').value;
+      const originalProject = document.getElementById('editProject').value;
+      const title = document.getElementById('title').value.trim();
+      const projectName = document.getElementById('project').value.trim();
+      if (!title || !projectName) return;
 
-    return frag;
-  };
-// ===== Modal / Create-Edit =====
-  const dialog=document.getElementById('taskDialog');
-  const form=dialog.querySelector('form');
-  document.getElementById('addTaskBtn').addEventListener('click',()=>openEditDialog());
-  document.getElementById('cancelCreate').addEventListener('click',()=>dialog.close());
+      const assignee = document.getElementById('assignee').value.trim();
+      const assigneeColor = document.getElementById('assigneeColor').value;
+      const avatarUrlInput = document.getElementById('avatarUrl').value.trim();
+      const avatarFile = document.getElementById('avatarFile').files[0];
+      const avatarFinal = avatarFile ? URL.createObjectURL(avatarFile) : (avatarUrlInput || '');
 
-  // Add link / checklist inputs dynamically
-  const addLinkInput=(value)=>{ 
-    const container=document.getElementById('linksContainer');
-    const div=document.createElement('div'); div.className='link-input';
-    const input=document.createElement('input'); input.type='text'; input.placeholder='website.com'; input.value=value||'';
-    const btn=document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove());
-    div.append(input,btn); container.appendChild(div);
-  };
-  const addCheckInput=(value)=>{ 
-    const container=document.getElementById('checklistContainer');
-    const div=document.createElement('div'); div.className='check-input';
-    const input=document.createElement('input'); input.type='text'; input.placeholder='Task item'; input.value=value||'';
-    const btn=document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove());
-    div.append(input,btn); container.appendChild(div);
-  };
-  dialog.addEventListener('click',e=>{
-    if(e.target?.id==='addLinkBtn'){ e.preventDefault(); addLinkInput(''); }
-    if(e.target?.id==='addCheckBtn'){ e.preventDefault(); addCheckInput(''); }
-  });
+      const links = [...document.querySelectorAll('#linksContainer input[type="text"]')].map(i=>i.value.trim()).filter(Boolean);
+      const details = document.getElementById('details').value.trim();
+      const checklist = [...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value.trim(),done:false})).filter(i=>i.text);
+      const files = [...document.getElementById('attachments').files].map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
 
-  // Open dialog populated (or empty for new)
-  const openEditDialog=(project,t)=>{
-    form.reset();
-    document.getElementById('linksContainer').innerHTML='<label>Links</label> <button type="button" id="addLinkBtn" class="btn">Add Link</button>';
-    document.getElementById('checklistContainer').innerHTML='<label>Tasks</label> <button type="button" id="addCheckBtn" class="btn">Add Item</button>';
-    document.getElementById('attachments').value=null;
-    document.getElementById('avatarFile').value=null;
+      // ensure project exists
+      let proj = state.projects[projectName];
+      if (!proj) {
+        proj = { name:projectName, columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}], tasks:{}, color:'#eaeaea', compact:false };
+        state.projects[projectName] = proj;
+        if (!state.order.includes(projectName)) state.order.push(projectName);
+      }
 
-    document.getElementById('editId').value = t?.id || '';
-    document.getElementById('editProject').value = project?.name || '';
-    document.getElementById('title').value = t?.title || '';
-    document.getElementById('project').value = project?.name || '';
-    document.getElementById('assignee').value = t?.assignee || '';
-    document.getElementById('assigneeColor').value = t?.assigneeColor || '#555555';
-    document.getElementById('avatarUrl').value = t?.avatarUrl || '';
-    (t?.links||[]).forEach(l=>addLinkInput(l));
-    (t?.checklist||[]).forEach(item=>addCheckInput(item.text));
-    document.getElementById('details').value = t?.details || '';
-
-    dialog.showModal();
-  };
-
-  // Submit create/update (persist with await save())
-  form.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-
-    const id = document.getElementById('editId').value;
-    const originalProject = document.getElementById('editProject').value;
-    const title = document.getElementById('title').value.trim();
-    const projectName = document.getElementById('project').value.trim();
-    if(!title||!projectName) return;
-
-    const assignee = document.getElementById('assignee').value.trim();
-    const assigneeColor = document.getElementById('assigneeColor').value;
-    const avatarUrlInput = document.getElementById('avatarUrl').value.trim();
-    const avatarFile = document.getElementById('avatarFile').files[0];
-    const avatarFinal = avatarFile ? URL.createObjectURL(avatarFile) : (avatarUrlInput || '');
-
-    const links = [...document.querySelectorAll('#linksContainer input[type="text"]')].map(i=>i.value.trim()).filter(Boolean);
-    const details = document.getElementById('details').value.trim();
-    const checklist = [...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value.trim(),done:false})).filter(i=>i.text);
-    const files = [...document.getElementById('attachments').files].map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
-
-    // Ensure destination project exists
-    let proj = state.projects[projectName];
-    if(!proj){
-      proj = { name:projectName, columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}], tasks:{}, color:'#eaeaea', compact:false };
-      state.projects[projectName]=proj;
-      if(!state.order.includes(projectName)) state.order.push(projectName);
-    }
-
-    if(id){ // update existing (handle cross-board move on edit)
-      const fromProject = state.projects[originalProject] || proj;
-      if(fromProject !== proj){
-        // Move to a new board if user changed Project field
-        const moving = fromProject.tasks[id];
-        if(moving){
+      if (id) {
+        // editing existing (may move across boards if project changed)
+        const fromProject = state.projects[originalProject] || proj;
+        if (fromProject !== proj && fromProject?.tasks?.[id]) {
+          const moving = fromProject.tasks[id];
           delete fromProject.tasks[id];
           proj.tasks[id] = moving;
         }
+        const target = proj.tasks[id] || { id, colId: proj.columns[0].id, createdAt: Date.now() };
+        Object.assign(target, { title, details, assignee, assigneeColor, avatarUrl: avatarFinal, links, attachments: files, checklist });
+        proj.tasks[id] = target;
+      } else {
+        // new task
+        const newId = uid();
+        proj.tasks[newId] = {
+          id:newId, title, details, assignee, assigneeColor, avatarUrl: avatarFinal,
+          links, attachments: files, checklist, createdAt: Date.now(), colId: proj.columns[0].id
+        };
       }
-      const target = proj.tasks[id] || { id, colId: proj.columns[0].id, createdAt: Date.now() };
-      Object.assign(target, { title, details, assignee, assigneeColor, avatarUrl: avatarFinal, links, attachments: files, checklist });
-      proj.tasks[id]=target;
-    } else { // new task
-      const newId = uid();
-      proj.tasks[newId] = {
-        id:newId, title, details, assignee, assigneeColor, avatarUrl: avatarFinal,
-        links, attachments: files, checklist, createdAt: Date.now(), colId: proj.columns[0].id
-      };
-    }
 
-    await save();
-    dialog.close();
+      await save();
+      dialog.close();
+    });
+
   });
-
-</script>
+  </script>
 </body>
 </html>
