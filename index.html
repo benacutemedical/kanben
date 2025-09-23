@@ -29,11 +29,7 @@
     .timer{font-size:12px;display:block;margin-top:4px}
     .assignee-badge{display:flex;align-items:center;gap:6px;margin-top:6px}
     .avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:bold;background:#555;overflow:hidden;background-size:cover;background-position:center}
-    .board.compact .t-details,
-    .board.compact .t-links,
-    .board.compact .t-attachments,
-    .board.compact .checklist{display:none}
-    /* NEW: fully collapsed board hides all columns */
+    /* Fully collapsed board hides all columns */
     .board.collapsed .columns{display:none}
 
     dialog{border:none;padding:0;border-radius:16px;box-shadow:0 20px 80px rgba(0,0,0,.18);}
@@ -96,7 +92,6 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <button class="collapse-toggle btn" title="Collapse/Expand">▾ Collapse</button>
-          <button class="toggle-view btn" title="Compact/Expanded">🗖 Expanded</button>
           <input type="color" class="boardColorPicker" title="Board header color">
           <button class="delete-board btn" title="Erase board">❌</button>
         </div>
@@ -210,28 +205,17 @@
       frag.querySelector('.index-badge').textContent = idx + 1;
       frag.querySelector('.project-name').textContent = p.name;
 
-      // header color
+      // Header color
       head.style.background = p.color || '#eaeaea';
       const picker = frag.querySelector('.boardColorPicker');
       picker.value = p.color || '#eaeaea';
       picker.addEventListener('input', async () => {
         p.color = picker.value;
         head.style.background = p.color;
-        render(); // optimistic
         await save();
       });
 
-      // compact toggle (hides details sections only)
-      const toggleBtn = frag.querySelector('.toggle-view');
-      b.classList.toggle('compact', !!p.compact);
-      toggleBtn.textContent = p.compact ? '🗕 Compact' : '🗖 Expanded';
-      toggleBtn.addEventListener('click', async () => {
-        p.compact = !p.compact;
-        render(); // optimistic
-        await save();
-      });
-
-      // NEW: collapse/expand (hides columns entirely)
+      // Collapse/Expand (fully hides columns)
       const collapseBtn = frag.querySelector('.collapse-toggle');
       b.classList.toggle('collapsed', !!p.collapsed);
       collapseBtn.textContent = p.collapsed ? '▸ Expand' : '▾ Collapse';
@@ -241,7 +225,7 @@
         await save();
       });
 
-      // delete board (GODMODE!)
+      // Delete board (GODMODE!)
       frag.querySelector('.delete-board').addEventListener('click', async () => {
         const pwd = prompt("Enter GODMODE! password to erase this board");
         if (pwd !== "GODMODE!") return;
@@ -251,7 +235,7 @@
         await save();
       });
 
-      // board reorder (drag whole board)
+      // Board reorder (drag whole board)
       b.addEventListener('dragstart', e => {
         e.dataTransfer.setData('text/board', p.name);
       });
@@ -272,7 +256,7 @@
         }
       });
 
-      // columns
+      // Columns
       const cols = frag.querySelector('.columns');
       p.columns.forEach(c => {
         const col = document.getElementById('columnTemplate').content.cloneNode(true);
@@ -281,7 +265,7 @@
         colEl.dataset.colid = c.id;
         colEl.dataset.project = p.name;
 
-        // drop target for tasks — make permissive for better browser compat
+        // Drop target for tasks (cross-board supported)
         colEl.addEventListener('dragover', e => {
           e.preventDefault(); colEl.classList.add('drag-over');
         });
@@ -289,7 +273,7 @@
         colEl.addEventListener('drop', async e => {
           e.preventDefault(); colEl.classList.remove('drag-over');
 
-          // robust payload (JSON fallback to legacy)
+          // Robust payload (JSON plus legacy)
           let tid, srcName;
           const plain = e.dataTransfer.getData('text/plain');
           try { const obj = JSON.parse(plain); tid = obj?.tid; srcName = obj?.project; } catch {}
@@ -305,7 +289,7 @@
           }
 
           const task = srcP.tasks[tid];
-          // move across boards if necessary
+          // Move across boards if necessary
           if (srcName !== p.name) {
             delete srcP.tasks[tid];
             if (!p.tasks) p.tasks = {};
@@ -317,7 +301,7 @@
           await save();
         });
 
-        // tasks for this col
+        // Render tasks for this column
         Object.values(p.tasks || {}).forEach(t => {
           const targetCol = t.colId || p.columns[0].id;
           if (targetCol === c.id) colEl.appendChild(renderTask(p, t));
@@ -336,7 +320,7 @@
       frag.querySelector('.t-title').textContent = t.title;
       frag.querySelector('.t-details').textContent = t.details || '';
 
-      // links
+      // Links (no https required)
       const linksDiv = frag.querySelector('.t-links');
       (t.links || []).forEach(l => {
         const a = document.createElement('a');
@@ -345,7 +329,7 @@
         linksDiv.appendChild(a);
       });
 
-      // attachments (session previews if uploaded)
+      // Attachments (session previews if uploaded)
       const attDiv = frag.querySelector('.t-attachments');
       (t.attachments || []).forEach(att => {
         if (att.type && att.type.startsWith('image/')) {
@@ -357,7 +341,7 @@
         }
       });
 
-      // checklist
+      // Checklist ("Tasks")
       const cl = frag.querySelector('.checklist');
       (t.checklist || []).forEach(item => {
         const lbl = document.createElement('label');
@@ -373,7 +357,7 @@
         cl.appendChild(lbl);
       });
 
-      // timer
+      // Timer (redder after 24h, brighter each day)
       const timerEl = frag.querySelector('.timer');
       const tick = () => {
         if (!t.createdAt) return;
@@ -382,14 +366,14 @@
         const hours = Math.floor((elapsed % 86400000) / 3600000);
         const minutes = Math.floor((elapsed % 3600000) / 60000);
         timerEl.textContent = `⏱ ${days}d ${hours}h ${minutes}m`;
-        if (elapsed > 86400000) { // >24h
+        if (elapsed > 86400000) {
           const red = Math.min(255, 100 + days * 30);
           timerEl.style.color = `rgb(${red},0,0)`;
         }
       };
       tick(); setInterval(tick, 60000);
 
-      // assignee badge
+      // Assignee badge
       const badge = frag.querySelector('.assignee-badge');
       if (t.assignee) {
         const av = document.createElement('div'); av.className = 'avatar';
@@ -399,7 +383,7 @@
         badge.append(av, name);
       }
 
-      // delete
+      // Delete task
       frag.querySelector('.delete-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm('Delete this task?')) {
@@ -409,13 +393,13 @@
         }
       });
 
-      // edit
+      // Edit task
       card.addEventListener('click', e => {
         if (e.target.classList.contains('delete-btn')) return;
         openEditDialog(p, t);
       });
 
-      // drag — set a robust plain-text JSON payload AND legacy keys
+      // Drag payload (robust JSON + legacy keys)
       card.addEventListener('dragstart', e => {
         const payload = JSON.stringify({ tid: t.id, project: p.name });
         e.dataTransfer.setData('text/plain', payload);
@@ -434,11 +418,11 @@
         state.order = data.order || Object.keys(state.projects);
         render();
       } else {
-        // create initial doc
+        // Create initial doc
         const sample = {
           name:'Sample Project',
           columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],
-          tasks:{}, color:'#eaeaea', compact:false, collapsed:false
+          tasks:{}, color:'#eaeaea', collapsed:false
         };
         const tid = uid();
         sample.tasks[tid] = {
@@ -461,7 +445,7 @@
       if (e.target?.id === 'addCheckBtn') { e.preventDefault(); addCheckInput(''); }
     });
 
-    // ===== Form submit (create/update) — CLOSES DIALOG on success or error =====
+    // ===== Form submit (create/update) — closes dialog even if save fails =====
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('editId').value;
@@ -481,17 +465,17 @@
       const checklist = [...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value.trim(),done:false})).filter(i=>i.text);
       const files = [...document.getElementById('attachments').files].map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
 
-      // ensure project exists
+      // Ensure project exists
       let proj = state.projects[projectName];
       if (!proj) {
-        proj = { name:projectName, columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}], tasks:{}, color:'#eaeaea', compact:false, collapsed:false };
+        proj = { name:projectName, columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}], tasks:{}, color:'#eaeaea', collapsed:false };
         state.projects[projectName] = proj;
         if (!state.order.includes(projectName)) state.order.push(projectName);
       }
 
       try {
         if (id) {
-          // editing existing (may move across boards if project changed)
+          // Editing existing (may move across boards if project changed)
           const fromProject = state.projects[originalProject] || proj;
           if (fromProject !== proj && fromProject?.tasks?.[id]) {
             const moving = fromProject.tasks[id];
@@ -502,7 +486,7 @@
           Object.assign(target, { title, details, assignee, assigneeColor, avatarUrl: avatarFinal, links, attachments: files, checklist });
           proj.tasks[id] = target;
         } else {
-          // new task
+          // New task
           const newId = uid();
           proj.tasks[newId] = {
             id:newId, title, details, assignee, assigneeColor, avatarUrl: avatarFinal,
