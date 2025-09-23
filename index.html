@@ -110,12 +110,11 @@
     <div class="assignee-badge"></div>
   </article>
 </template>
-
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
   import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-  // 🔑 Your Firebase config
+  // 🔥 Your Firebase config
   const firebaseConfig = {
     apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
     authDomain: "kanben-acutesoft.firebaseapp.com",
@@ -125,118 +124,247 @@
     appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
     measurementId: "G-GND9Q3PN18"
   };
-
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const docRef = doc(db, "kanban", "shared");
 
-  let state={projects:{},order:[]};
+  // ===== State =====
+  const state={projects:{},order:[]};
   const uid=()=>Math.random().toString(36).slice(2,9);
-  const save=()=>setDoc(docRef,state);
+  const save=()=>setDoc(docRef,JSON.parse(JSON.stringify(state)));
 
-  // 🔄 Firestore listener
+  // ===== Sync from Firestore =====
   onSnapshot(docRef,snap=>{
-    if(snap.exists()){state=snap.data(); render();}
+    if(snap.exists()){
+      Object.assign(state,snap.data());
+      render();
+    } else {
+      // bootstrap empty project
+      const sample={name:'Sample Project',columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],tasks:{},color:'#eee'};
+      const tid=uid();
+      sample.tasks[tid]={id:tid,title:'Example Task',details:'Try editing me',assignee:'You',assigneeColor:'#555',links:['https://example.com'],attachments:[],checklist:[{text:'Sample step',done:false}],createdAt:Date.now()};
+      state.projects[sample.name]=sample; state.order.push(sample.name);
+      save();
+    }
   });
 
-  // ================= RENDER =================
+  // ===== Rendering =====
   const boards=document.getElementById('boards');
   const render=()=>{
     boards.innerHTML='';
-    state.order.forEach((name,idx)=>{
-      const p=state.projects[name]; if(!p) return;
-      const frag=document.getElementById('boardTemplate').content.cloneNode(true);
-      const b=frag.querySelector('.board'); b.dataset.project=p.name;
-      frag.querySelector('.index-badge').textContent=idx+1;
-      frag.querySelector('.project-name').textContent=p.name;
-      frag.querySelector('.toggle-view').textContent=p.compact?"🗕 Compact":"🗖 Expanded";
-      frag.querySelector('.toggle-view').addEventListener('click',()=>{p.compact=!p.compact; save();});
-      frag.querySelector('.delete-board').addEventListener('click',()=>{
-        if(prompt("Enter GODMODE! password")!=="GODMODE!") return alert("Wrong password!");
-        delete state.projects[p.name]; state.order=state.order.filter(n=>n!==p.name); save();
-      });
-      const picker=frag.querySelector('.boardColorPicker'); picker.value=p.color||'#eee';
-      picker.addEventListener('input',()=>{p.color=picker.value; save();});
-      b.querySelector('.board-head').style.background=p.color||'#eee';
-
-      // Board drag
-      b.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/board',p.name);});
-      b.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('text/board')) e.preventDefault();});
-      b.addEventListener('drop',e=>{
-        const dragged=e.dataTransfer.getData('text/board');
-        if(dragged && dragged!==p.name){
-          const arr=state.order; const from=arr.indexOf(dragged), to=arr.indexOf(p.name);
-          arr.splice(to,0,arr.splice(from,1)[0]); save();
-        }
-      });
-
-      // columns
-      const cols=frag.querySelector('.columns');
-      p.columns.forEach(c=>{
-        const col=document.getElementById('columnTemplate').content.cloneNode(true);
-        const colDiv=col.querySelector('.column'); colDiv.dataset.colId=c.id; colDiv.querySelector('.col-name').textContent=c.name;
-        colDiv.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('text/task')){e.preventDefault(); colDiv.classList.add('drag-over');}});
-        colDiv.addEventListener('dragleave',()=>colDiv.classList.remove('drag-over'));
-        colDiv.addEventListener('drop',e=>{
-          if(!e.dataTransfer.types.includes('text/task')) return;
-          e.preventDefault(); colDiv.classList.remove('drag-over');
-          const tid=e.dataTransfer.getData('text/task'); const srcProj=e.dataTransfer.getData('text/project');
-          if(!state.projects[srcProj]?.tasks[tid]) return;
-          if(c.name==="Completed" && prompt("Enter GODMODE! password")!=="GODMODE!") return alert("Wrong password!");
-          const task=state.projects[srcProj].tasks[tid];
-          delete state.projects[srcProj].tasks[tid];
-          p.tasks[tid]=task; task.colId=c.id; save();
-        });
-        cols.appendChild(col);
-      });
-      Object.values(p.tasks).forEach(t=>{
-        const col=cols.querySelector(`[data-col-id="${t.colId||p.columns[0].id}"]`);
-        (col||cols.firstChild).appendChild(renderTask(p,t));
-      });
-      boards.appendChild(frag);
+    state.order.forEach((n,i)=>{
+      const p=state.projects[n];
+      if(p) boards.appendChild(renderBoard(p,i));
     });
+  };
+
+  const renderBoard=(p,idx)=>{
+    const frag=document.getElementById('boardTemplate').content.cloneNode(true);
+    const b=frag.querySelector('.board');
+    b.dataset.project=p.name;
+    frag.querySelector('.index-badge').textContent=idx+1;
+    const titleEl=frag.querySelector('.project-name');
+    titleEl.textContent=p.name;
+    // color header
+    const head=frag.querySelector('.board-head');
+    head.style.background=p.color||'#ddd';
+    const colorPicker=frag.querySelector('.boardColorPicker');
+    colorPicker.value=p.color||'#ddd';
+    colorPicker.addEventListener('input',()=>{
+      p.color=colorPicker.value;
+      save();
+    });
+    // delete board
+    frag.querySelector('.delete-board').addEventListener('click',()=>{
+      const pwd=prompt("Enter GODMODE! password to erase this board");
+      if(pwd==="GODMODE!"){
+        delete state.projects[p.name];
+        state.order=state.order.filter(x=>x!==p.name);
+        save();
+      }
+    });
+    // compact/expand
+    const toggleBtn=frag.querySelector('.toggle-view');
+    toggleBtn.addEventListener('click',()=>{
+      b.classList.toggle('compact');
+    });
+
+    // columns
+    const cols=frag.querySelector('.columns');
+    p.columns.forEach(c=>{
+      const col=document.getElementById('columnTemplate').content.cloneNode(true);
+      col.querySelector('.col-name').textContent=c.name;
+      const colEl=col.querySelector('.column');
+      colEl.dataset.colid=c.id;
+      colEl.dataset.project=p.name;
+      // drag target
+      colEl.addEventListener('dragover',e=>{
+        e.preventDefault(); colEl.classList.add('drag-over');
+      });
+      colEl.addEventListener('dragleave',()=>colEl.classList.remove('drag-over'));
+      colEl.addEventListener('drop',e=>{
+        e.preventDefault();
+        colEl.classList.remove('drag-over');
+        const tid=e.dataTransfer.getData('text/plain');
+        const task=Object.values(p.tasks).find(t=>t.id===tid);
+        if(!task) return;
+        // GODMODE check if Completed col
+        if(c.name==="Completed"){
+          const pwd=prompt("Enter GODMODE! password to move task to Completed");
+          if(pwd!=="GODMODE!") return;
+        }
+        task.colId=c.id;
+        save();
+      });
+      // append tasks
+      Object.values(p.tasks).forEach(t=>{
+        const colMatch=t.colId||p.columns[0].id;
+        if(colMatch===c.id) colEl.appendChild(renderTask(p,t));
+      });
+      cols.appendChild(col);
+    });
+    return frag;
   };
 
   const renderTask=(p,t)=>{
     const frag=document.getElementById('taskTemplate').content.cloneNode(true);
-    const card=frag.querySelector('.task'); card.dataset.id=t.id; if(p.compact) card.classList.add('compact');
-    card.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/task',t.id); e.dataTransfer.setData('text/project',p.name);});
-    frag.querySelector('.delete-btn').addEventListener('click',()=>{if(confirm('Delete task?')){delete p.tasks[t.id]; save();}});
+    const card=frag.querySelector('.task');
+    card.dataset.id=t.id;
     frag.querySelector('.t-title').textContent=t.title;
     frag.querySelector('.t-details').textContent=t.details||'';
-
-    const linksDiv=frag.querySelector('.t-links');
-    (t.links||[]).forEach(l=>{let a=document.createElement('a'); a.href=/^https?:\/\//i.test(l)?l:"https://"+l; a.textContent=l; a.target='_blank'; linksDiv.appendChild(a);});
-
-    const attDiv=frag.querySelector('.t-attachments');
-    (t.attachments||[]).forEach(att=>{if(att.type&&att.type.startsWith('image/')){let img=document.createElement('img'); img.src=att.url; attDiv.appendChild(img);} else {let a=document.createElement('a'); a.href=att.url; a.target='_blank'; a.textContent=att.name||'Attachment'; attDiv.appendChild(a);}});
-
-    const cl=frag.querySelector('.checklist');
-    (t.checklist||[]).forEach(item=>{const lbl=document.createElement('label'); if(item.done) lbl.classList.add('done'); const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!item.done; cb.addEventListener('change',()=>{item.done=cb.checked; lbl.classList.toggle('done',cb.checked); save();}); lbl.appendChild(cb); lbl.appendChild(document.createTextNode(item.text)); cl.appendChild(lbl);});
-
+    // links
+    const ldiv=frag.querySelector('.t-links');
+    (t.links||[]).forEach(l=>{
+      const a=document.createElement('a');
+      a.href=l.startsWith('http')?l:'https://'+l;
+      a.textContent=l; a.target="_blank";
+      ldiv.appendChild(a);
+    });
+    // attachments
+    const adiv=frag.querySelector('.t-attachments');
+    (t.attachments||[]).forEach(att=>{
+      if(att.type&&att.type.startsWith('image/')){
+        const img=document.createElement('img');
+        img.src=att.url; adiv.appendChild(img);
+      } else {
+        const a=document.createElement('a');
+        a.href=att.url; a.textContent=att.name||'file'; a.target="_blank";
+        adiv.appendChild(a);
+      }
+    });
+    // checklist
+    const cdiv=frag.querySelector('.checklist');
+    (t.checklist||[]).forEach(item=>{
+      const lbl=document.createElement('label');
+      if(item.done) lbl.classList.add('done');
+      const cb=document.createElement('input');
+      cb.type='checkbox'; cb.checked=!!item.done;
+      cb.addEventListener('change',()=>{
+        item.done=cb.checked;
+        if(cb.checked) lbl.classList.add('done'); else lbl.classList.remove('done');
+        save();
+      });
+      lbl.appendChild(cb); lbl.append(item.text);
+      cdiv.appendChild(lbl);
+    });
+    // timer
     const timerEl=frag.querySelector('.timer');
-    const tick=()=>{const start=t.createdAt||Date.now(); const elapsed=Date.now()-start; const s=Math.floor(elapsed/1000)%60,m=Math.floor(elapsed/60000)%60,h=Math.floor(elapsed/3600000); timerEl.textContent=`${h}h ${m}m ${s}s`; if(elapsed>86400000){const days=Math.floor(elapsed/86400000); const red=Math.min(255,150+days*30); timerEl.style.color=`rgb(${red},0,0)`;}}; tick(); setInterval(tick,1000);
-
-    const badge=frag.querySelector('.assignee-badge');
-    if(t.assignee){const avatar=document.createElement('div'); avatar.className='avatar'; if(t.avatarUrl){avatar.style.backgroundImage=`url(${t.avatarUrl})`;} else {avatar.style.background=t.assigneeColor||'#555'; avatar.textContent=(t.assignee[0]||'?').toUpperCase();} badge.appendChild(avatar); badge.appendChild(document.createTextNode(t.assignee));}
-
-    card.addEventListener('click',e=>{if(!e.target.classList.contains('delete-btn')) openEditDialog(p,t);});
+    const updateTimer=()=>{
+      if(!t.createdAt) return;
+      const diff=Date.now()-t.createdAt;
+      const days=Math.floor(diff/(1000*60*60*24));
+      const hours=Math.floor((diff/(1000*60*60))%24);
+      timerEl.textContent=`${days}d ${hours}h`;
+      if(diff>86400000){ // >24h
+        timerEl.style.color=`rgb(${Math.min(255,100+days*30)},0,0)`;
+      }
+    };
+    setInterval(updateTimer,60000);
+    updateTimer();
+    // assignee
+    const ab=frag.querySelector('.assignee-badge');
+    if(t.assignee){
+      const av=document.createElement('div');
+      av.className='avatar';
+      if(t.avatarUrl) av.style.backgroundImage=`url(${t.avatarUrl})`;
+      else av.textContent=t.assignee[0].toUpperCase();
+      av.style.backgroundColor=t.assigneeColor||'#555';
+      const span=document.createElement('span');
+      span.textContent=t.assignee;
+      ab.appendChild(av); ab.appendChild(span);
+    }
+    // delete
+    frag.querySelector('.delete-btn').addEventListener('click',e=>{
+      e.stopPropagation();
+      if(confirm("Delete this task?")){
+        delete p.tasks[t.id]; save();
+      }
+    });
+    // edit
+    card.addEventListener('click',e=>{
+      if(e.target.classList.contains('delete-btn')) return;
+      openEditDialog(p,t);
+    });
+    // drag
+    card.addEventListener('dragstart',e=>{
+      e.dataTransfer.setData('text/plain',t.id);
+    });
     return frag;
   };
-
-  // ================= DIALOG =================
-  const dialog=document.getElementById('taskDialog'); const form=dialog.querySelector('form');
+  // ===== Modal Logic =====
+  const dialog=document.getElementById('taskDialog');
+  const form=dialog.querySelector('form');
   document.getElementById('addTaskBtn').addEventListener('click',()=>openEditDialog());
   document.getElementById('cancelCreate').addEventListener('click',()=>dialog.close());
-  dialog.addEventListener('click',e=>{if(e.target.id==='addLinkBtn') addLinkInput(''); if(e.target.id==='addCheckBtn') addCheckInput('');});
 
-  const addLinkInput=(value)=>{const container=document.getElementById('linksContainer'); const div=document.createElement('div'); div.className='link-input'; const input=document.createElement('input'); input.type='text'; input.placeholder='website.com'; input.value=value||''; const btn=document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove()); div.appendChild(input); div.appendChild(btn); container.appendChild(div);};
-  const addCheckInput=(value)=>{const container=document.getElementById('checklistContainer'); const div=document.createElement('div'); div.className='check-input'; const input=document.createElement('input'); input.type='text'; input.placeholder='Task item'; input.value=value||''; const btn=document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove()); div.appendChild(input); div.appendChild(btn); container.appendChild(div);};
+  dialog.addEventListener('click',e=>{
+    if(e.target && e.target.id==='addLinkBtn'){
+      e.preventDefault(); addLinkInput('');
+    } else if(e.target && e.target.id==='addCheckBtn'){
+      e.preventDefault(); addCheckInput('');
+    }
+  });
 
-  const openEditDialog=(project,t)=>{form.reset(); document.getElementById('linksContainer').innerHTML='<label>Links</label><button type="button" id="addLinkBtn" class="btn">Add Link</button>'; document.getElementById('checklistContainer').innerHTML='<label>Tasks</label><button type="button" id="addCheckBtn" class="btn">Add Item</button>'; document.getElementById('attachments').value=null; document.getElementById('avatarFile').value=null; if(t){document.getElementById('editId').value=t.id; document.getElementById('title').value=t.title; document.getElementById('project').value=project.name; document.getElementById('assignee').value=t.assignee||''; document.getElementById('assigneeColor').value=t.assigneeColor||'#555555'; document.getElementById('avatarUrl').value=t.avatarUrl||''; (t.links||[]).forEach(l=>addLinkInput(l)); (t.checklist||[]).forEach(item=>addCheckInput(item.text)); document.getElementById('details').value=t.details||'';} else {document.getElementById('editId').value='';} dialog.showModal();};
+  const addLinkInput=(value)=>{ 
+    const container=document.getElementById('linksContainer');
+    const div=document.createElement('div'); div.className='link-input';
+    const input=document.createElement('input'); input.type='text'; input.placeholder='example.com'; input.value=value||'';
+    const btn=document.createElement('button'); btn.type='button'; btn.textContent='✖';
+    btn.addEventListener('click',()=>div.remove());
+    div.append(input,btn); container.appendChild(div);
+  };
+  const addCheckInput=(value)=>{ 
+    const container=document.getElementById('checklistContainer');
+    const div=document.createElement('div'); div.className='check-input';
+    const input=document.createElement('input'); input.type='text'; input.placeholder='Task item'; input.value=value||'';
+    const btn=document.createElement('button'); btn.type='button'; btn.textContent='✖';
+    btn.addEventListener('click',()=>div.remove());
+    div.append(input,btn); container.appendChild(div);
+  };
 
-  form.add
-  form.addEventListener('submit',async e=>{
+  const openEditDialog=(project,t)=>{
+    form.reset();
+    document.getElementById('linksContainer').innerHTML='<label>Links</label> <button type="button" id="addLinkBtn" class="btn">Add Link</button>';
+    document.getElementById('checklistContainer').innerHTML='<label>Tasks</label> <button type="button" id="addCheckBtn" class="btn">Add Item</button>';
+    document.getElementById('attachments').value=null;
+    if(t){
+      document.getElementById('editId').value=t.id;
+      document.getElementById('title').value=t.title;
+      document.getElementById('project').value=project.name;
+      document.getElementById('assignee').value=t.assignee||'';
+      document.getElementById('assigneeColor').value=t.assigneeColor||'#555555';
+      document.getElementById('avatarUrl').value=t.avatarUrl||'';
+      (t.links||[]).forEach(l=>addLinkInput(l));
+      (t.checklist||[]).forEach(item=>addCheckInput(item.text));
+      document.getElementById('details').value=t.details||'';
+    } else {
+      document.getElementById('editId').value='';
+    }
+    dialog.showModal();
+  };
+
+  // ===== Form Submit =====
+  form.addEventListener('submit',e=>{
     e.preventDefault();
     const id=document.getElementById('editId').value;
     const title=document.getElementById('title').value.trim();
@@ -246,9 +374,9 @@
     const assignee=document.getElementById('assignee').value.trim();
     const assigneeColor=document.getElementById('assigneeColor').value;
     const avatarUrl=document.getElementById('avatarUrl').value.trim();
-    const links=[...document.querySelectorAll('#linksContainer input[type="text"]')].map(i=>i.value).filter(Boolean);
+    const links=[...document.querySelectorAll('#linksContainer input[type="text"]')].map(i=>i.value.trim()).filter(Boolean);
     const details=document.getElementById('details').value.trim();
-    const checklist=[...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value,done:false})).filter(i=>i.text);
+    const checklist=[...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value.trim(),done:false})).filter(i=>i.text);
     const files=[...document.getElementById('attachments').files].map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
 
     let proj=state.projects[projectName];
@@ -263,21 +391,10 @@
       const newId=uid();
       proj.tasks[newId]={id:newId,title,details,assignee,assigneeColor,avatarUrl,links,attachments:files,checklist,createdAt:Date.now()};
     }
-    await save();
+    save();
     dialog.close();
   });
-
-  // Bootstrap sample project if empty
-  onSnapshot(docRef,snap=>{
-    if(!snap.exists()){
-      const sample={name:'Sample Project',columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],tasks:{},color:'#eee'};
-      const tid=uid();
-      sample.tasks[tid]={id:tid,title:'Example task',details:'Click to edit me',assignee:'You',assigneeColor:'#555',links:['example.com'],attachments:[],checklist:[{text:'Sample item',done:false}],createdAt:Date.now()};
-      state.projects[sample.name]=sample; state.order.push(sample.name);
-      save();
-    }
-  });
-
 </script>
 </body>
 </html>
+<!-- === END PART 3 === -->
