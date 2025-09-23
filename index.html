@@ -12,9 +12,9 @@
     .wrap{max-width:1100px;margin:0 auto;padding:16px;display:flex;justify-content:space-between;align-items:center}
     .btn{cursor:pointer;border:1px solid #ccc;background:#fff;padding:6px 12px;border-radius:8px}
     .btn.primary{background:#000;color:#fff;border-color:#000}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
     .boards{max-width:1100px;margin:24px auto;display:flex;flex-direction:column;gap:16px}
     .board{border:1px solid #ddd;border-radius:var(--radius);background:#fff}
-    .board.dragging{opacity:.6}
     .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
     .columns{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px}
     .column{border:1px dashed #ccc;border-radius:10px;min-height:140px;padding:6px;display:flex;flex-direction:column;gap:6px}
@@ -85,13 +85,15 @@
 
   <!-- TEMPLATES -->
   <template id="boardTemplate">
-    <section class="board" draggable="true">
+    <section class="board">
       <div class="board-head">
         <div style="display:flex;align-items:center;gap:10px">
           <span class="index-badge"></span>
           <h2 class="project-name" style="margin:0;font-size:18px"></h2>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
+          <button class="move-up btn" title="Move board up">▲</button>
+          <button class="move-down btn" title="Move board down">▼</button>
           <button class="collapse-toggle btn" title="Collapse/Expand">▾ Collapse</button>
           <button class="add-column btn" title="Add a new column">＋ Column</button>
           <input type="color" class="boardColorPicker" title="Board header color">
@@ -199,38 +201,6 @@
       });
     };
 
-    // Helper: compute insert index for board drop by mouse Y
-    const getBoardInsertIndex = (y) => {
-      const items = [...boards.querySelectorAll('.board')];
-      for (let i=0;i<items.length;i++){
-        const rect = items[i].getBoundingClientRect();
-        const offset = y - rect.top - rect.height/2;
-        if (offset < 0) return i;
-      }
-      return items.length;
-    };
-
-    // Global container handlers for board reordering
-    boards.addEventListener('dragover', (e) => {
-      if (e.dataTransfer.types.includes('text/board')) e.preventDefault();
-    });
-    boards.addEventListener('drop', async (e) => {
-      const from = e.dataTransfer.getData('text/board');
-      if (!from) return;
-      const arr = state.order;
-      const fromIndex = arr.indexOf(from);
-      if (fromIndex === -1) return;
-
-      const insertIndex = getBoardInsertIndex(e.clientY);
-      // remove then insert at new index (adjust if moving forward)
-      const [moved] = arr.splice(fromIndex,1);
-      const idx = insertIndex > fromIndex ? insertIndex-1 : insertIndex;
-      arr.splice(idx,0,moved);
-
-      render();            // optimistic
-      await save();        // persist
-    });
-
     const renderBoard = (p, idx) => {
       const frag = document.getElementById('boardTemplate').content.cloneNode(true);
       const b = frag.querySelector('.board');
@@ -238,13 +208,6 @@
       b.dataset.project = p.name;
       frag.querySelector('.index-badge').textContent = idx + 1;
       frag.querySelector('.project-name').textContent = p.name;
-
-      // Enable board drag for reordering
-      b.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('text/board', p.name);
-        b.classList.add('dragging');
-      });
-      b.addEventListener('dragend', () => b.classList.remove('dragging'));
 
       // Header color
       head.style.background = p.color || '#eaeaea';
@@ -264,6 +227,30 @@
         p.collapsed = !p.collapsed;
         render(); // optimistic
         await save();
+      });
+
+      // Move Up/Down (arrow buttons)
+      const upBtn = frag.querySelector('.move-up');
+      const downBtn = frag.querySelector('.move-down');
+      upBtn.disabled = idx === 0;
+      downBtn.disabled = idx === state.order.length - 1;
+
+      upBtn.addEventListener('click', async () => {
+        const i = state.order.indexOf(p.name);
+        if (i > 0) {
+          const arr = state.order;
+          [arr[i-1], arr[i]] = [arr[i], arr[i-1]];
+          render(); await save();
+        }
+      });
+
+      downBtn.addEventListener('click', async () => {
+        const i = state.order.indexOf(p.name);
+        if (i > -1 && i < state.order.length - 1) {
+          const arr = state.order;
+          [arr[i], arr[i+1]] = [arr[i+1], arr[i]];
+          render(); await save();
+        }
       });
 
       // Add Column
