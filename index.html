@@ -29,7 +29,10 @@
     .timer{font-size:12px;display:block;margin-top:4px}
     .assignee-badge{display:flex;align-items:center;gap:6px;margin-top:6px}
     .avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:bold;background:#555;overflow:hidden;background-size:cover;background-position:center}
-    .compact .t-details,.compact .t-links,.compact .t-attachments,.compact .checklist{display:none}
+    .board.compact .t-details,
+    .board.compact .t-links,
+    .board.compact .t-attachments,
+    .board.compact .checklist{display:none}
     dialog{border:none;padding:0;border-radius:16px;box-shadow:0 20px 80px rgba(0,0,0,.18);}
     dialog::backdrop{background:rgba(0,0,0,.35)}
     #taskDialog{width:min(1000px,96vw);max-height:90vh;overflow:auto}
@@ -210,6 +213,7 @@
       picker.addEventListener('input', async () => {
         p.color = picker.value;
         head.style.background = p.color;
+        render(); // optimistic
         await save();
       });
 
@@ -219,8 +223,7 @@
       toggleBtn.textContent = p.compact ? '🗕 Compact' : '🗖 Expanded';
       toggleBtn.addEventListener('click', async () => {
         p.compact = !p.compact;
-        b.classList.toggle('compact', p.compact);
-        toggleBtn.textContent = p.compact ? '🗕 Compact' : '🗖 Expanded';
+        render(); // optimistic
         await save();
       });
 
@@ -230,6 +233,7 @@
         if (pwd !== "GODMODE!") return;
         delete state.projects[p.name];
         state.order = state.order.filter(n => n !== p.name);
+        render(); // optimistic
         await save();
       });
 
@@ -248,6 +252,7 @@
           const i1 = arr.indexOf(from), i2 = arr.indexOf(to);
           if (i1 > -1 && i2 > -1) {
             arr.splice(i2, 0, arr.splice(i1, 1)[0]);
+            render(); // optimistic
             await save();
           }
         }
@@ -273,10 +278,12 @@
           const srcName = e.dataTransfer.getData('text/project');
           const srcP = state.projects[srcName];
           if (!srcP || !srcP.tasks || !srcP.tasks[tid]) return;
+
           if (c.name === "Completed") {
             const pwd = prompt("Enter GODMODE! password to move task to Completed");
             if (pwd !== "GODMODE!") return;
           }
+
           const task = srcP.tasks[tid];
           // move across boards if necessary
           if (srcName !== p.name) {
@@ -285,6 +292,8 @@
             p.tasks[tid] = task;
           }
           task.colId = c.id;
+
+          render(); // optimistic
           await save();
         });
 
@@ -337,6 +346,7 @@
         cb.addEventListener('change', async () => {
           item.done = cb.checked;
           lbl.classList.toggle('done', cb.checked);
+          render(); // optimistic (keeps UI in sync)
           await save();
         });
         lbl.append(cb, document.createTextNode(item.text));
@@ -374,6 +384,7 @@
         e.stopPropagation();
         if (confirm('Delete this task?')) {
           delete p.tasks[t.id];
+          render(); // optimistic
           await save();
         }
       });
@@ -393,7 +404,7 @@
       return frag;
     };
 
-    // ===== Firestore -> state bootstrap =====
+    // ===== Firestore snapshot -> state/bootstrap =====
     onSnapshot(docRef, snap => {
       if (snap.exists()) {
         const data = snap.data();
@@ -415,11 +426,12 @@
           createdAt:Date.now(), colId: sample.columns[0].id
         };
         state.projects[sample.name] = sample; state.order = [sample.name];
-        save();
+        render(); // show immediately
+        save();   // persist
       }
     });
 
-    // ===== Global listeners (AFTER functions exist) =====
+    // ===== Global listeners =====
     document.getElementById('addTaskBtn').addEventListener('click', () => openEditDialog());
     document.getElementById('cancelCreate').addEventListener('click', () => dialog.close());
     dialog.addEventListener('click', (e) => {
@@ -455,28 +467,31 @@
         if (!state.order.includes(projectName)) state.order.push(projectName);
       }
 
-      if (id) {
-        // editing existing (may move across boards if project changed)
-        const fromProject = state.projects[originalProject] || proj;
-        if (fromProject !== proj && fromProject?.tasks?.[id]) {
-          const moving = fromProject.tasks[id];
-          delete fromProject.tasks[id];
-          proj.tasks[id] = moving;
+      try {
+        if (id) {
+          // editing existing (may move across boards if project changed)
+          const fromProject = state.projects[originalProject] || proj;
+          if (fromProject !== proj && fromProject?.tasks?.[id]) {
+            const moving = fromProject.tasks[id];
+            delete fromProject.tasks[id];
+            proj.tasks[id] = moving;
+          }
+          const target = proj.tasks[id] || { id, colId: proj.columns[0].id, createdAt: Date.now() };
+          Object.assign(target, { title, details, assignee, assigneeColor, avatarUrl: avatarFinal, links, attachments: files, checklist });
+          proj.tasks[id] = target;
+        } else {
+          // new task
+          const newId = uid();
+          proj.tasks[newId] = {
+            id:newId, title, details, assignee, assigneeColor, avatarUrl: avatarFinal,
+            links, attachments: files, checklist, createdAt: Date.now(), colId: proj.columns[0].id
+          };
         }
-        const target = proj.tasks[id] || { id, colId: proj.columns[0].id, createdAt: Date.now() };
-        Object.assign(target, { title, details, assignee, assigneeColor, avatarUrl: avatarFinal, links, attachments: files, checklist });
-        proj.tasks[id] = target;
-      } else {
-        // new task
-        const newId = uid();
-        proj.tasks[newId] = {
-          id:newId, title, details, assignee, assigneeColor, avatarUrl: avatarFinal,
-          links, attachments: files, checklist, createdAt: Date.now(), colId: proj.columns[0].id
-        };
+        render();           // optimistic
+        await save();       // persist
+      } finally {
+        dialog.close();     // always close (even if save failed)
       }
-
-      await save();
-      dialog.close();
     });
 
   });
