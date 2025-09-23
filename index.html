@@ -14,6 +14,7 @@
     .btn.primary{background:#000;color:#fff;border-color:#000}
     .boards{max-width:1100px;margin:24px auto;display:flex;flex-direction:column;gap:16px}
     .board{border:1px solid #ddd;border-radius:var(--radius);background:#fff}
+    .board.dragging{opacity:.6}
     .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
     .columns{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px}
     .column{border:1px dashed #ccc;border-radius:10px;min-height:140px;padding:6px;display:flex;flex-direction:column;gap:6px}
@@ -92,6 +93,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <button class="collapse-toggle btn" title="Collapse/Expand">▾ Collapse</button>
+          <button class="add-column btn" title="Add a new column">＋ Column</button>
           <input type="color" class="boardColorPicker" title="Board header color">
           <button class="delete-board btn" title="Erase board">❌</button>
         </div>
@@ -197,6 +199,38 @@
       });
     };
 
+    // Helper: compute insert index for board drop by mouse Y
+    const getBoardInsertIndex = (y) => {
+      const items = [...boards.querySelectorAll('.board')];
+      for (let i=0;i<items.length;i++){
+        const rect = items[i].getBoundingClientRect();
+        const offset = y - rect.top - rect.height/2;
+        if (offset < 0) return i;
+      }
+      return items.length;
+    };
+
+    // Global container handlers for board reordering
+    boards.addEventListener('dragover', (e) => {
+      if (e.dataTransfer.types.includes('text/board')) e.preventDefault();
+    });
+    boards.addEventListener('drop', async (e) => {
+      const from = e.dataTransfer.getData('text/board');
+      if (!from) return;
+      const arr = state.order;
+      const fromIndex = arr.indexOf(from);
+      if (fromIndex === -1) return;
+
+      const insertIndex = getBoardInsertIndex(e.clientY);
+      // remove then insert at new index (adjust if moving forward)
+      const [moved] = arr.splice(fromIndex,1);
+      const idx = insertIndex > fromIndex ? insertIndex-1 : insertIndex;
+      arr.splice(idx,0,moved);
+
+      render();            // optimistic
+      await save();        // persist
+    });
+
     const renderBoard = (p, idx) => {
       const frag = document.getElementById('boardTemplate').content.cloneNode(true);
       const b = frag.querySelector('.board');
@@ -204,6 +238,13 @@
       b.dataset.project = p.name;
       frag.querySelector('.index-badge').textContent = idx + 1;
       frag.querySelector('.project-name').textContent = p.name;
+
+      // Enable board drag for reordering
+      b.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/board', p.name);
+        b.classList.add('dragging');
+      });
+      b.addEventListener('dragend', () => b.classList.remove('dragging'));
 
       // Header color
       head.style.background = p.color || '#eaeaea';
@@ -225,6 +266,17 @@
         await save();
       });
 
+      // Add Column
+      const addColBtn = frag.querySelector('.add-column');
+      addColBtn.addEventListener('click', async ()=>{
+        const name = prompt('New column name?', 'Backlog');
+        if(!name) return;
+        p.columns = p.columns || [];
+        p.columns.push({ id: uid(), name: name.trim() });
+        render(); // show new column right away
+        await save();
+      });
+
       // Delete board (GODMODE!)
       frag.querySelector('.delete-board').addEventListener('click', async () => {
         const pwd = prompt("Enter GODMODE! password to erase this board");
@@ -233,27 +285,6 @@
         state.order = state.order.filter(n => n !== p.name);
         render(); // optimistic
         await save();
-      });
-
-      // Board reorder (drag whole board)
-      b.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/board', p.name);
-      });
-      b.addEventListener('dragover', e => {
-        if (e.dataTransfer.types.includes('text/board')) e.preventDefault();
-      });
-      b.addEventListener('drop', async e => {
-        const from = e.dataTransfer.getData('text/board');
-        const to = p.name;
-        if (from && from !== to) {
-          const arr = state.order;
-          const i1 = arr.indexOf(from), i2 = arr.indexOf(to);
-          if (i1 > -1 && i2 > -1) {
-            arr.splice(i2, 0, arr.splice(i1, 1)[0]);
-            render(); // optimistic
-            await save();
-          }
-        }
       });
 
       // Columns
