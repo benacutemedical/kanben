@@ -166,7 +166,7 @@
     onSnapshot(kanbanRef,(snap)=>{if(snap.exists()){state=snap.data();render();}});
 
     // === Google Drive Backup + Restore ===
-    const GOOGLE_CLIENT_ID="YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com"; // replace!
+    const GOOGLE_CLIENT_ID="21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com"; // replace!
     let driveAccessToken=null,tokenClient=null;
     const loadGIS=()=>new Promise(res=>{const s=document.createElement('script');s.src="https://accounts.google.com/gsi/client";s.async=true;s.defer=true;s.onload=res;document.head.appendChild(s);});
     await loadGIS();
