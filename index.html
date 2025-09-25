@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Zen Kanban To-Do</title>
+  <title>Zen Kanban To-Do (Cloud)</title>
   <style>
     :root{--radius:12px}
     *{box-sizing:border-box}
@@ -25,7 +25,6 @@
     .delete-btn{position:absolute;top:2px;right:2px;border:none;background:none;color:#a00;font-size:16px;cursor:pointer}
     .t-links a{display:block;font-size:12px;word-break:break-all;color:#0b67c2}
     .t-attachments img{max-width:100px;max-height:80px;border:1px solid #ddd;border-radius:6px}
-    .t-attachments a{display:inline-block;font-size:12px}
     .checklist label{display:flex;align-items:center;gap:6px;font-size:12px}
     .checklist label.done{color:#777;text-decoration:line-through}
     .timer{font-size:12px;display:block;margin-top:4px}
@@ -44,22 +43,20 @@
     #taskDialog .actions{display:flex;justify-content:flex-end;gap:10px}
     #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#111;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s}
     #toast.show{opacity:1}
-    #logo{max-height:60px}
   </style>
 </head>
 <body>
   <header>
     <div class="wrap">
       <div class="left">
-        <img id="logo" alt="Logo"/>
-        <input type="file" id="logoUpload" accept="image/*" style="display:none"/>
-        <button id="uploadLogoBtn" class="btn">🖼 Upload Logo</button>
+        <div id="headerLogo"></div>
+        <button id="uploadLogoBtn" class="btn">📷 Upload Logo</button>
+        <input type="file" id="logoUpload" accept="image/*" style="display:none">
         <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
       </div>
       <div class="right">
-        <button id="driveSignIn" class="btn">🔑 Sign in to Drive</button>
-        <button id="backupNow" class="btn" disabled>💾 Backup Now</button>
-        <button id="restoreBackup" class="btn" disabled>♻ Restore Backup</button>
+        <button id="backupNow" class="btn" disabled>💾 Backup</button>
+        <button id="restoreBackup" class="btn" disabled>♻ Restore</button>
       </div>
     </div>
   </header>
@@ -104,12 +101,12 @@
           <h2 class="project-name" style="margin:0;font-size:18px"></h2>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <button class="move-up btn">▲</button>
-          <button class="move-down btn">▼</button>
-          <button class="collapse-toggle btn">▾</button>
-          <button class="add-column btn">＋</button>
-          <input type="color" class="boardColorPicker">
-          <button class="delete-board btn">❌</button>
+          <button class="move-up btn" title="Move board up">▲</button>
+          <button class="move-down btn" title="Move board down">▼</button>
+          <button class="collapse-toggle btn" title="Collapse/Expand">▾</button>
+          <button class="add-column btn" title="Add column">＋</button>
+          <input type="color" class="boardColorPicker" title="Board header color">
+          <button class="delete-board btn" title="Erase board">❌</button>
         </div>
       </div>
       <div class="columns"></div>
@@ -122,7 +119,7 @@
 
   <template id="taskTemplate">
     <article class="task" draggable="true">
-      <button class="delete-btn">✖</button>
+      <button class="delete-btn" title="Delete task">✖</button>
       <h3 class="t-title"></h3>
       <div class="t-details"></div>
       <div class="t-links"></div>
@@ -132,15 +129,14 @@
       <div class="assignee-badge"></div>
     </article>
   </template>
-
-  <!-- Firebase + App -->
+    <!-- Firebase + App -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
     import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-storage.js";
     import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
-    // Firebase Config
+    // === Firebase Config (your live project) ===
     const firebaseConfig = {
       apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
       authDomain: "kanben-acutesoft.firebaseapp.com",
@@ -150,301 +146,518 @@
       appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
       measurementId: "G-GND9Q3PN18"
     };
+
+    // === Init ===
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     const storage = getStorage(app);
-    const kanbanRef = doc(db,"kanban","prod");
-
-    // === Auth ===
     const auth = getAuth(app);
     const provider = new GoogleAuthProvider();
-    const rightHeader = document.querySelector("header .right");
 
-    const signInBtn = document.createElement("button");
-    signInBtn.textContent = "🔑 Sign In with Google";
-    signInBtn.className = "btn";
-    rightHeader.appendChild(signInBtn);
+    // Single document store for now
+    const kanbanRef = doc(db, "kanban", "prod");
 
-    const signOutBtn = document.createElement("button");
-    signOutBtn.textContent = "🚪 Sign Out";
-    signOutBtn.className = "btn";
-    signOutBtn.style.display = "none";
-    rightHeader.appendChild(signOutBtn);
-
-    signInBtn.onclick = async () => { try { await signInWithPopup(auth, provider); } catch(e){ console.error(e); } };
-    signOutBtn.onclick = async () => { try { await signOut(auth); } catch(e){ console.error(e); } };
-
-    onAuthStateChanged(auth, user => {
-      if(user){
-        signInBtn.style.display="none";
-        signOutBtn.style.display="inline-block";
-        document.getElementById("boards").style.display="flex";
-        toast("✅ Logged in as " + user.email);
-      } else {
-        signInBtn.style.display="inline-block";
-        signOutBtn.style.display="none";
-        document.getElementById("boards").style.display="none";
-        toast("❌ Signed out");
-      }
-    });
-
-    // === Toast ===
+    // === UI Helpers ===
     const toast = (msg) => {
-      const t = document.getElementById('toast');
-      t.textContent = msg; t.classList.add('show');
-      clearTimeout(t._hide); t._hide=setTimeout(()=>t.classList.remove('show'),2000);
+      const t = document.getElementById("toast");
+      t.textContent = msg; t.classList.add("show");
+      clearTimeout(t._hide); t._hide = setTimeout(()=>t.classList.remove("show"), 2200);
     };
 
     // === State ===
-    let state={projects:{},order:[],logoUrl:""};
-    const uid=()=>Math.random().toString(36).slice(2,9);
+    let state = { projects:{}, order:[], logoUrl:"" };
+    const uid = () => Math.random().toString(36).slice(2,9);
 
-    // === Firestore Sync ===
-    async function save(){await setDoc(kanbanRef,state);}
-    onSnapshot(kanbanRef,(snap)=>{if(snap.exists()){state=snap.data();render();}});
+    // === Auth Buttons ===
+    const rightHeader = document.querySelector(".right");
+    const signInBtn = document.createElement("button");
+    signInBtn.className = "btn";
+    signInBtn.id = "signInBtn";
+    signInBtn.textContent = "🔑 Sign In with Google";
+    rightHeader.prepend(signInBtn);
 
-    // === Logo Upload ===
-    document.getElementById("uploadLogoBtn").onclick=()=>document.getElementById("logoUpload").click();
-    document.getElementById("logoUpload").onchange=async(e)=>{
-      const file=e.target.files[0];
+    const signOutBtn = document.createElement("button");
+    signOutBtn.className = "btn";
+    signOutBtn.id = "signOutBtn";
+    signOutBtn.textContent = "🚪 Sign Out";
+    signOutBtn.style.display = "none";
+    rightHeader.prepend(signOutBtn);
+
+    signInBtn.onclick = async () => { try { await signInWithPopup(auth, provider); } catch(e){ console.error(e); toast("Auth error"); } };
+    signOutBtn.onclick = async () => { try { await signOut(auth); } catch(e){ console.error(e); toast("Sign-out failed"); } };
+
+    // === Firestore Sync (guarded by auth) ===
+    async function save(){
+      if(!auth.currentUser){ console.warn("Not signed in; skipping save"); return; }
+      try { await setDoc(kanbanRef, state); }
+      catch(e){ console.error("Save failed:", e); toast("Save failed"); }
+    }
+
+    // Start listening after auth, otherwise we risk permission errors
+    let unsub = null;
+    onAuthStateChanged(auth, user => {
+      if(user){
+        signInBtn.style.display = "none";
+        signOutBtn.style.display = "inline-block";
+        document.getElementById("boards").style.display = "flex";
+        toast("✅ Logged in as " + (user.email || "user"));
+
+        if(!unsub){
+          unsub = onSnapshot(kanbanRef, (snap)=>{
+            if(snap.exists()){
+              state = snap.data();
+              render();
+            } else {
+              // Initialize empty default doc
+              state = { projects:{}, order:[], logoUrl:"" };
+              save();
+              render();
+            }
+          }, (err)=>{ console.error("onSnapshot error", err); toast("Read error"); });
+        }
+      } else {
+        // Signed out
+        signInBtn.style.display = "inline-block";
+        signOutBtn.style.display = "none";
+        document.getElementById("boards").style.display = "none";
+        toast("❌ Signed out");
+        if(unsub){ unsub(); unsub=null; }
+      }
+    });
+
+    // === Logo upload (hide button after upload; click logo to replace) ===
+    const logoContainer = document.getElementById("headerLogo");
+    const uploadBtn = document.getElementById("uploadLogoBtn");
+    const logoInput = document.getElementById("logoUpload");
+
+    function renderLogo(){
+      logoContainer.innerHTML = "";
+      if(state.logoUrl){
+        const img = document.createElement("img");
+        img.src = state.logoUrl;
+        img.style.maxHeight = "60px";
+        img.style.objectFit = "contain";
+        logoContainer.appendChild(img);
+        uploadBtn.style.display = "none";
+        // Click logo to replace
+        logoContainer.onclick = () => logoInput.click();
+      } else {
+        uploadBtn.style.display = "inline-block";
+        logoContainer.onclick = null;
+      }
+    }
+
+    uploadBtn.onclick = () => logoInput.click();
+    logoInput.onchange = async (e)=>{
+      const file = e.target.files[0];
       if(!file) return;
-      const fileRef=ref(storage,"logo/"+file.name);
-      await uploadBytes(fileRef,file);
-      state.logoUrl=await getDownloadURL(fileRef);
-      save(); render();
+      try{
+        if(!auth.currentUser){ toast("Sign in first"); return; }
+        const fileRef = ref(storage, "logo/current");
+        await uploadBytes(fileRef, file);
+        state.logoUrl = await getDownloadURL(fileRef);
+        await save();
+        renderLogo();
+        toast("✅ Logo updated");
+      }catch(err){ console.error(err); toast("Logo upload failed"); }
     };
 
-    // === Google Drive Backup + Restore ===
-    const GOOGLE_CLIENT_ID="21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com";
-    let driveAccessToken=null,tokenClient=null;
-    const loadGIS=()=>new Promise(res=>{const s=document.createElement('script');s.src="https://accounts.google.com/gsi/client";s.async=true;s.defer=true;s.onload=res;document.head.appendChild(s);});
-    await loadGIS();
-    tokenClient=google.accounts.oauth2.initTokenClient({
-      client_id:GOOGLE_CLIENT_ID,
-      scope:"https://www.googleapis.com/auth/drive.file",
-      callback:(t)=>{driveAccessToken=t.access_token;document.getElementById("backupNow").disabled=false;document.getElementById("restoreBackup").disabled=false;toast("Drive connected");}
+    // === Google Drive Backup & Restore ===
+    const GOOGLE_CLIENT_ID = "21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com";
+    let driveAccessToken = null, tokenClient = null;
+
+    // Load Google Identity Services
+    const loadGIS = () => new Promise((resolve)=>{
+      const s = document.createElement("script");
+      s.src = "https://accounts.google.com/gsi/client";
+      s.async = true; s.defer = true;
+      s.onload = resolve;
+      document.head.appendChild(s);
     });
-    document.getElementById("driveSignIn").onclick=()=>tokenClient.requestAccessToken();
-    document.getElementById("backupNow").onclick=()=>doBackup();
-    document.getElementById("restoreBackup").onclick=()=>doRestore();
+    await loadGIS();
 
-    async function doBackup(){
-      const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
-      const metadata={name:`kanban-backup-${new Date().toISOString()}.json`,mimeType:"application/json",parents:["root"]};
-      const form=new FormData();
-      form.append("metadata",new Blob([JSON.stringify(metadata)],{type:"application/json"}));
-      form.append("file",blob);
-      await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:new Headers({"Authorization":"Bearer "+driveAccessToken}),body:form});
-      toast("💾 Backup saved to Drive");
-    }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: "https://www.googleapis.com/auth/drive.file",
+      callback: (t) => {
+        driveAccessToken = t.access_token;
+        document.getElementById("backupNow").disabled = false;
+        document.getElementById("restoreBackup").disabled = false;
+        toast("🔗 Drive connected");
+      }
+    });
 
-    async function doRestore(){
-      if(!driveAccessToken) return alert("Sign in first!");
-      const res=await fetch("https://www.googleapis.com/drive/v3/files?q=name contains 'kanban-backup'&orderBy=createdTime desc&fields=files(id,name)&pageSize=1",{headers:{Authorization:"Bearer "+driveAccessToken}});
-      const data=await res.json();const file=data.files?.[0];
-      if(!file){toast("⚠ No backups found");return;}
-      const res2=await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{headers:{Authorization:"Bearer "+driveAccessToken}});
-      const restored=await res2.json();
-      state=restored;await save();toast("♻ Restored latest backup");
-    }
+    // Wire backup buttons
+    document.getElementById("backupNow").onclick = async ()=>{
+      if(!auth.currentUser){ toast("Sign in first"); return; }
+      if(!driveAccessToken){ tokenClient.requestAccessToken(); return; }
+      try{
+        const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
+        const metadata = { name:`kanban-backup-${new Date().toISOString()}.json`, mimeType:"application/json", parents:["root"] };
+        const form = new FormData();
+        form.append("metadata", new Blob([JSON.stringify(metadata)],{type:"application/json"}));
+        form.append("file", blob);
+        await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{
+          method:"POST",
+          headers: { "Authorization":"Bearer "+driveAccessToken },
+          body: form
+        });
+        toast("💾 Backup saved to Drive");
+      }catch(e){ console.error(e); toast("Backup failed"); }
+    };
 
-    // === Render Functions ===
-    const boards=document.getElementById('boards');
+    document.getElementById("restoreBackup").onclick = async ()=>{
+      if(!auth.currentUser){ toast("Sign in first"); return; }
+      if(!driveAccessToken){ tokenClient.requestAccessToken(); return; }
+      try{
+        const res = await fetch("https://www.googleapis.com/drive/v3/files?q=name contains 'kanban-backup'&orderBy=createdTime desc&fields=files(id,name)&pageSize=1",{
+          headers:{ Authorization: "Bearer "+driveAccessToken }
+        });
+        const data = await res.json();
+        const file = data.files?.[0];
+        if(!file){ toast("No backups found"); return; }
+        const res2 = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{
+          headers:{ Authorization: "Bearer "+driveAccessToken }
+        });
+        const restored = await res2.json();
+        state = restored;
+        await save();
+        render();
+        toast("♻ Restored latest backup");
+      }catch(e){ console.error(e); toast("Restore failed"); }
+    };
+
+    // Expose these so Part 3 can call them
+    window.__app = { db, storage, auth, save, stateRef:()=>state, setState:(s)=>state=s, renderLogo };
+        // === Render & UI ===
+    const boards = document.getElementById("boards");
 
     function render(){
-      boards.innerHTML='';
-      if(state.logoUrl){
-        document.getElementById("logo").src=state.logoUrl;
-      }
-      state.order.forEach((name,i)=>{
-        const p=state.projects[name];
-        if(p) boards.appendChild(renderBoard(p,i));
+      // Logo
+      renderLogo();
+
+      // Boards
+      boards.innerHTML = "";
+      (window.__app.stateRef().order||[]).forEach((name, idx)=>{
+        const p = window.__app.stateRef().projects[name];
+        if(p) boards.appendChild(renderBoard(p, idx));
       });
-      save();
+
+      // Persist
+      window.__app.save();
     }
 
-    function renderBoard(p,idx){
-      const frag=document.getElementById('boardTemplate').content.cloneNode(true);
-      const b=frag.querySelector('.board'); b.dataset.project=p.name;
-      frag.querySelector('.index-badge').textContent=idx+1;
-      frag.querySelector('.project-name').textContent=p.name;
-      const cols=frag.querySelector('.columns');
-      if(p.collapsed) cols.style.display="none";
+    function ensureProject(name){
+      const s = window.__app.stateRef();
+      if(!s.projects[name]){
+        s.projects[name] = {
+          name,
+          columns: [
+            {id:"todo", name:"To Do"},
+            {id:"doing", name:"Doing"},
+            {id:"done", name:"Done"}
+          ],
+          tasks:{},
+          color:"#ffffff",
+          collapsed:false
+        };
+        s.order.push(name);
+      }
+      return s.projects[name];
+    }
 
-      frag.querySelector('.collapse-toggle').onclick=()=>{p.collapsed=!p.collapsed;render();};
-      frag.querySelector('.move-up').onclick=()=>{if(idx>0){[state.order[idx-1],state.order[idx]]=[state.order[idx],state.order[idx-1]];render();}};
-      frag.querySelector('.move-down').onclick=()=>{if(idx<state.order.length-1){[state.order[idx+1],state.order[idx]]=[state.order[idx],state.order[idx+1]];render();}};
-      frag.querySelector('.boardColorPicker').value=p.color||"#ffffff";
-      frag.querySelector('.boardColorPicker').oninput=(e)=>{p.color=e.target.value;b.querySelector('.board-head').style.background=p.color;save();};
-      frag.querySelector('.delete-board').onclick=()=>{const pw=prompt("Enter GODMODE! password");if(pw==="GODMODE!"){delete state.projects[p.name];state.order=state.order.filter(x=>x!==p.name);render();}};
+    function renderBoard(p, idx){
+      const frag = document.getElementById("boardTemplate").content.cloneNode(true);
+      const section = frag.querySelector(".board");
+      section.dataset.project = p.name;
+
+      const head = frag.querySelector(".board-head");
+      const title = frag.querySelector(".project-name");
+      const badge = frag.querySelector(".index-badge");
+      badge.textContent = idx+1;
+      title.textContent = p.name;
+
+      // header color
+      head.style.background = p.color || "#fff";
+
+      // header actions
+      frag.querySelector(".boardColorPicker").value = p.color || "#ffffff";
+      frag.querySelector(".boardColorPicker").oninput = (e)=>{ p.color=e.target.value; window.__app.save(); render(); };
+
+      frag.querySelector(".collapse-toggle").onclick = ()=>{
+        p.collapsed = !p.collapsed;
+        window.__app.save(); render();
+      };
+
+      frag.querySelector(".move-up").onclick = ()=>{
+        const s=window.__app.stateRef();
+        if(idx>0){ [s.order[idx-1], s.order[idx]] = [s.order[idx], s.order[idx-1]]; window.__app.save(); render(); }
+      };
+
+      frag.querySelector(".move-down").onclick = ()=>{
+        const s=window.__app.stateRef();
+        if(idx<s.order.length-1){ [s.order[idx+1], s.order[idx]] = [s.order[idx], s.order[idx+1]]; window.__app.save(); render(); }
+      };
+
+      frag.querySelector(".delete-board").onclick = ()=>{
+        const pw = prompt("Enter GODMODE! password");
+        if(pw==="GODMODE!"){
+          const s = window.__app.stateRef();
+          delete s.projects[p.name];
+          s.order = s.order.filter(n=>n!==p.name);
+          window.__app.save(); render();
+        }
+      };
+
+      frag.querySelector(".add-column").onclick = ()=>{
+        const name = prompt("Column name?");
+        if(name){
+          p.columns.push({id:uid(),name});
+          window.__app.save(); render();
+        }
+      };
+
+      // columns + tasks
+      const cols = frag.querySelector(".columns");
+      if(p.collapsed){ cols.style.display="none"; }
 
       p.columns.forEach(c=>{
-        const col=document.getElementById('columnTemplate').content.cloneNode(true);
-        col.querySelector('.col-name').textContent=c.name;
-        const colEl=col.querySelector('.column'); colEl.dataset.colId=c.id;
-        colEl.ondragover=(e)=>{e.preventDefault();colEl.classList.add('drag-over');};
-        colEl.ondragleave=()=>colEl.classList.remove('drag-over');
-        colEl.ondrop=(e)=>{e.preventDefault();colEl.classList.remove('drag-over');const tid=e.dataTransfer.getData("text");const task=Object.values(p.tasks).find(t=>t.id===tid);if(task){task.colId=c.id;save();render();}};
-        Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{colEl.appendChild(renderTask(p,t));});
-        cols.appendChild(col);
+        const cfrag = document.getElementById("columnTemplate").content.cloneNode(true);
+        const col = cfrag.querySelector(".column");
+        cfrag.querySelector(".col-name").textContent = c.name;
+        col.dataset.colId = c.id;
+
+        // drag-over
+        col.ondragover = (e)=>{ e.preventDefault(); col.classList.add("drag-over"); };
+        col.ondragleave = ()=>{ col.classList.remove("drag-over"); };
+
+        // drop -> move task within this board
+        col.ondrop = (e)=>{
+          e.preventDefault(); col.classList.remove("drag-over");
+          const tid = e.dataTransfer.getData("text");
+          const task = Object.values(p.tasks).find(t=>t.id===tid);
+          if(task){
+            task.colId = c.id;
+            window.__app.save(); render();
+          }
+        };
+
+        // render tasks in this column
+        Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{
+          col.appendChild(renderTask(p,t));
+        });
+
+        cols.appendChild(cfrag);
       });
 
-      frag.querySelector('.add-column').onclick=()=>{const name=prompt("Column name?");if(name){p.columns.push({id:uid(),name});save();render();}};
       return frag;
     }
 
     function renderTask(p,t){
-      const frag=document.getElementById('taskTemplate').content.cloneNode(true);
-      const card=frag.querySelector('.task'); card.dataset.id=t.id;
-      frag.querySelector('.t-title').textContent=t.title;
-          frag.querySelector('.t-details').textContent = t.details || '';
+      const frag = document.getElementById("taskTemplate").content.cloneNode(true);
+      const card = frag.querySelector(".task"); 
+      card.dataset.id = t.id;
+
+      frag.querySelector(".t-title").textContent = t.title;
+      frag.querySelector(".t-details").textContent = t.details || "";
 
       // Links
-      const linksEl = frag.querySelector('.t-links');
+      const linksEl = frag.querySelector(".t-links");
       (t.links||[]).forEach(l=>{
-        if(l.url){
-          const a=document.createElement('a');
-          a.href=l.url.startsWith("http")?l.url:"https://"+l.url;
+        const url = (l?.url||"").trim();
+        if(url){
+          const a=document.createElement("a");
+          a.href = /^https?:\/\//i.test(url) ? url : ("https://"+url);
+          a.textContent = l.label || url;
           a.target="_blank";
-          a.textContent=l.label||l.url;
           linksEl.appendChild(a);
         }
       });
 
       // Attachments
-      const attEl=frag.querySelector('.t-attachments');
+      const attEl = frag.querySelector(".t-attachments");
       (t.attachments||[]).forEach(a=>{
-        if(a.url){
-          if(a.type && a.type.startsWith("image/")){
-            const img=document.createElement('img'); img.src=a.url;
-            attEl.appendChild(img);
-          } else {
-            const link=document.createElement('a'); link.href=a.url; link.textContent=a.name||"File"; link.target="_blank";
-            attEl.appendChild(link);
-          }
+        if(!a?.url) return;
+        if((a.type||"").startsWith("image/")){
+          const img=document.createElement("img");
+          img.src=a.url; img.alt=a.name||"image";
+          attEl.appendChild(img);
+        } else {
+          const link=document.createElement("a");
+          link.href=a.url; link.target="_blank";
+          link.textContent=a.name||"file";
+          attEl.appendChild(link);
         }
       });
 
       // Checklist
-      const cl=frag.querySelector('.checklist');
+      const cl = frag.querySelector(".checklist");
       (t.checklist||[]).forEach((item,idx)=>{
-        const label=document.createElement('label');
-        const cb=document.createElement('input'); cb.type="checkbox"; cb.checked=item.done;
-        cb.onchange=()=>{item.done=cb.checked; save(); render();};
+        const label=document.createElement("label");
+        const cb=document.createElement("input");
+        cb.type="checkbox"; cb.checked=!!item.done;
+        cb.onchange=()=>{ item.done=cb.checked; window.__app.save(); render(); };
         label.appendChild(cb);
-        label.append(item.text);
-        if(item.done) label.classList.add('done');
+        label.append(document.createTextNode(item.text||""));
+        if(item.done) label.classList.add("done");
         cl.appendChild(label);
       });
 
       // Timer
-      if(t.created){
-        const elapsed=Date.now()-t.created;
-        const days=Math.floor(elapsed/86400000);
-        const h=frag.querySelector('.timer');
-        h.textContent=`⏱ ${days}d ${Math.floor((elapsed%86400000)/3600000)}h`;
-        if(days>=1){h.style.color="red"; h.style.fontWeight="bold";}
+      const h = frag.querySelector(".timer");
+      if(!t.created) t.created=Date.now();
+      const age = Date.now()-t.created;
+      const hours = Math.floor(age/3600000);
+      const days = Math.floor(age/86400000);
+      h.textContent = `⏱ ${hours}h`;
+      if(age > 24*3600000){
+        // turn red & intensify by day
+        h.style.color = `rgb(${Math.min(255, 150 + days*20)}, 0, 0)`;
+        h.style.fontWeight = "bold";
       }
 
-      // Assignee
-      const ab=frag.querySelector('.assignee-badge');
+      // Assignee badge
+      const ab = frag.querySelector(".assignee-badge");
       if(t.assignee){
-        const av=document.createElement('div'); av.className="avatar";
-        if(t.avatarUrl){av.style.backgroundImage=`url(${t.avatarUrl})`;}
-        else {av.textContent=t.assignee.charAt(0).toUpperCase();}
-        av.style.backgroundColor=t.assigneeColor||"#555";
+        const av=document.createElement("div");
+        av.className = "avatar";
+        if(t.avatarUrl){ av.style.backgroundImage = `url(${t.avatarUrl})`; }
+        else { av.textContent = t.assignee.charAt(0).toUpperCase(); }
+        av.style.background = t.assigneeColor || "#555";
         ab.appendChild(av);
-        const name=document.createElement('span'); name.textContent=t.assignee;
+        const name=document.createElement("span");
+        name.textContent = t.assignee;
         ab.appendChild(name);
       }
 
       // Delete
-      frag.querySelector('.delete-btn').onclick=()=>{delete p.tasks[t.id]; save(); render();};
+      frag.querySelector(".delete-btn").onclick = ()=>{
+        delete p.tasks[t.id];
+        window.__app.save(); render();
+      };
 
       // Drag + click edit
-      card.ondragstart=(e)=>{e.dataTransfer.setData("text",t.id);};
-      card.ondblclick=()=>{openTaskDialog(p,t);};
+      card.ondragstart = (e)=>{ e.dataTransfer.setData("text", t.id); };
+      card.onclick = (e)=>{ if(e.target.classList.contains("delete-btn")) return; openDialog(p, t); };
 
       return frag;
     }
 
-    // === Task Dialog ===
-    const dlg=document.getElementById('taskDialog');
-    const form=dlg.querySelector('form');
+    // === Dialog ===
+    const dlg = document.getElementById("taskDialog");
+    const form = dlg.querySelector("form");
+    document.getElementById("addTaskBtn").onclick = ()=> openDialog();
 
-    document.getElementById('addTaskBtn').onclick=()=>openTaskDialog();
+    document.getElementById("cancelCreate").onclick = ()=> dlg.close();
 
-    function openTaskDialog(p=null,t=null){
+    // Link & Checklist helpers
+    function addLinkInput(url="", label=""){
+      const wrap = document.createElement("div");
+      wrap.className = "link-input";
+      wrap.innerHTML = `
+        <input class="url" placeholder="url (optional)" value="${url}">
+        <input class="label" placeholder="label (optional)" value="${label}">
+        <button type="button" class="btn remove">✖</button>
+      `;
+      wrap.querySelector(".remove").onclick = ()=> wrap.remove();
+      document.getElementById("linksContainer").appendChild(wrap);
+    }
+    document.getElementById("addLinkBtn").onclick = ()=> addLinkInput();
+
+    function addCheckInput(text="", done=false){
+      const wrap = document.createElement("div");
+      wrap.className = "check-input";
+      wrap.innerHTML = `
+        <input class="text" placeholder="task" value="${text}">
+        <input type="checkbox" class="done" ${done?"checked":""}>
+        <button type="button" class="btn remove">✖</button>
+      `;
+      wrap.querySelector(".remove").onclick = ()=> wrap.remove();
+      document.getElementById("checklistContainer").appendChild(wrap);
+    }
+    document.getElementById("addCheckBtn").onclick = ()=> addCheckInput();
+
+    function openDialog(project=null, task=null){
       form.reset();
-      document.getElementById('linksContainer').querySelectorAll('.link-input').forEach(e=>e.remove());
-      document.getElementById('checklistContainer').querySelectorAll('.check-input').forEach(e=>e.remove());
-      document.getElementById('editId').value=t?t.id:"";
-      document.getElementById('editProject').value=p?p.name:"";
-      if(t){
-        document.getElementById('title').value=t.title;
-        document.getElementById('project').value=p.name;
-        document.getElementById('assignee').value=t.assignee||"";
-        document.getElementById('assigneeColor').value=t.assigneeColor||"#555555";
-        document.getElementById('avatarUrl').value=t.avatarUrl||"";
-        document.getElementById('details').value=t.details||"";
-        (t.links||[]).forEach(l=>addLinkInput(l.url,l.label));
-        (t.checklist||[]).forEach(i=>addCheckInput(i.text,i.done));
-      } else {
-        addCheckInput("");
-      }
+      // clear dynamic lists
+      document.querySelectorAll("#linksContainer .link-input").forEach(n=>n.remove());
+      document.querySelectorAll("#checklistContainer .check-input").forEach(n=>n.remove());
+      document.getElementById("attachments").value = null;
+      document.getElementById("avatarFile").value = null;
+
+      document.getElementById("editId").value = task?.id || "";
+      document.getElementById("editProject").value = project?.name || "";
+
+      document.getElementById("title").value = task?.title || "";
+      document.getElementById("project").value = project?.name || "";
+      document.getElementById("assignee").value = task?.assignee || "";
+      document.getElementById("assigneeColor").value = task?.assigneeColor || "#555555";
+      document.getElementById("avatarUrl").value = task?.avatarUrl || "";
+      document.getElementById("details").value = task?.details || "";
+
+      (task?.links||[]).forEach(l=> addLinkInput(l.url||"", l.label||""));
+      (task?.checklist||[]).forEach(i=> addCheckInput(i.text||"", !!i.done));
+      if(!task){ addCheckInput(""); }
+
       dlg.showModal();
     }
 
-    document.getElementById('cancelCreate').onclick=()=>dlg.close();
-
-    form.onsubmit=async (e)=>{
+    form.onsubmit = async (e)=>{
       e.preventDefault();
-      const id=document.getElementById('editId').value||uid();
-      const projName=document.getElementById('project').value.trim();
-      if(!state.projects[projName]){
-        state.projects[projName]={name:projName,columns:[{id:"todo",name:"To Do"},{id:"doing",name:"Doing"},{id:"done",name:"Done"}],tasks:{}};
-        state.order.push(projName);
+      if(!window.__app.auth.currentUser){ toast("Sign in first"); return; }
+
+      const id = document.getElementById("editId").value || uid();
+      const projName = (document.getElementById("project").value || "").trim();
+      if(!projName){ toast("Project required"); return; }
+
+      const s = window.__app.stateRef();
+      const proj = ensureProject(projName);
+      const prev = proj.tasks[id] || { id, created: Date.now(), colId: "todo" };
+
+      const task = {
+        ...prev,
+        title: document.getElementById("title").value,
+        details: document.getElementById("details").value,
+        assignee: document.getElementById("assignee").value,
+        assigneeColor: document.getElementById("assigneeColor").value,
+        avatarUrl: document.getElementById("avatarUrl").value,
+        links: [...document.querySelectorAll("#linksContainer .link-input")].map(div=>({
+          url: div.querySelector(".url").value.trim(),
+          label: div.querySelector(".label").value.trim()
+        })).filter(x=>x.url || x.label),
+        checklist: [...document.querySelectorAll("#checklistContainer .check-input")].map(div=>({
+          text: div.querySelector(".text").value.trim(),
+          done: div.querySelector(".done").checked
+        })).filter(x=>x.text),
+        attachments: prev.attachments || []
+      };
+
+      // Upload avatar file if chosen
+      const avatarFile = document.getElementById("avatarFile").files[0];
+      if(avatarFile){
+        const avRef = ref(window.__app.storage, `avatars/${id}/${avatarFile.name}`);
+        await uploadBytes(avRef, avatarFile);
+        task.avatarUrl = await getDownloadURL(avRef);
       }
-      const proj=state.projects[projName];
-      const t=proj.tasks[id]||{id,created:Date.now(),colId:"todo"};
-      t.title=document.getElementById('title').value;
-      t.assignee=document.getElementById('assignee').value;
-      t.assigneeColor=document.getElementById('assigneeColor').value;
-      t.avatarUrl=document.getElementById('avatarUrl').value;
-      t.details=document.getElementById('details').value;
-      // Links
-      t.links=[...document.querySelectorAll('#linksContainer .link-input')].map(div=>({url:div.querySelector('.url').value,label:div.querySelector('.label').value}));
-      // Checklist
-      t.checklist=[...document.querySelectorAll('#checklistContainer .check-input')].map(div=>({text:div.querySelector('.text').value,done:div.querySelector('.done').checked}));
-      // Attachments
-      t.attachments=t.attachments||[];
-      const files=document.getElementById('attachments').files;
+
+      // Upload attachments
+      const files = document.getElementById("attachments").files;
       for(const f of files){
-        const fRef=ref(storage,"attachments/"+id+"-"+f.name);
-        await uploadBytes(fRef,f);
-        const url=await getDownloadURL(fRef);
-        t.attachments.push({url,name:f.name,type:f.type});
+        const aRef = ref(window.__app.storage, `attachments/${id}/${f.name}`);
+        await uploadBytes(aRef, f);
+        const url = await getDownloadURL(aRef);
+        task.attachments.push({ name:f.name, url, type:f.type||"" });
       }
-      proj.tasks[id]=t;
-      await save(); render(); dlg.close();
+
+      proj.tasks[id] = task;
+      await window.__app.save();
+      render();
+      dlg.close();
+      toast("✅ Task saved");
     };
 
-    // Add link input
-    function addLinkInput(url="",label=""){
-      const div=document.createElement('div'); div.className="link-input";
-      div.innerHTML=`<input class="url" placeholder="url" value="${url}"><input class="label" placeholder="label" value="${label}">`;
-      document.getElementById('linksContainer').appendChild(div);
-    }
-    document.getElementById('addLinkBtn').onclick=()=>addLinkInput();
-
-    // Add checklist input
-    function addCheckInput(text="",done=false){
-      const div=document.createElement('div'); div.className="check-input";
-      div.innerHTML=`<input class="text" placeholder="task" value="${text}"><input type="checkbox" class="done" ${done?"checked":""}>`;
-      document.getElementById('checklistContainer').appendChild(div);
-    }
-    document.getElementById('addCheckBtn').onclick=()=>addCheckInput();
-
+    // Initial UI bootstrap (renders logo if present; boards come via onSnapshot after login)
+    renderLogo();
   </script>
 </body>
 </html>
