@@ -18,14 +18,14 @@
     .boards{max-width:1100px;margin:20px auto;display:flex;flex-direction:column;gap:16px}
     .board{border:1px solid #ddd;border-radius:var(--radius);background:#fff}
     .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
-    .columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;padding:12px}
+    .columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;padding:12px}
     .column{border:1px dashed #ccc;border-radius:10px;min-height:140px;padding:6px;display:flex;flex-direction:column;gap:6px}
     .column.drag-over{background:#eef6ff;border-color:#2b78ff}
     .task{border:1px solid #ddd;border-radius:10px;padding:8px;background:#fff;cursor:grab;position:relative}
     .task h3{margin:0 0 4px;font-size:14px}
     .delete-btn{position:absolute;top:2px;right:2px;border:none;background:none;color:#a00;font-size:16px;cursor:pointer}
     .t-links a{display:block;font-size:12px;word-break:break-all;color:#0b67c2}
-    .t-attachments img{max-width:100%;max-height:80px;border:1px solid #ddd;border-radius:6px}
+    .t-attachments img{max-width:100px;max-height:80px;border:1px solid #ddd;border-radius:6px}
     .t-attachments a{display:inline-block;font-size:12px}
     .checklist label{display:flex;align-items:center;gap:6px;font-size:12px}
     .checklist label.done{color:#777;text-decoration:line-through}
@@ -33,7 +33,6 @@
     .assignee-badge{display:flex;align-items:center;gap:6px;margin-top:6px}
     .avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:bold;background:#555;overflow:hidden;background-size:cover;background-position:center}
     .board.collapsed .columns{display:none}
-
     dialog{border:none;padding:0;border-radius:16px;box-shadow:0 20px 80px rgba(0,0,0,.18);}
     dialog::backdrop{background:rgba(0,0,0,.35)}
     #taskDialog{width:min(1000px,96vw);max-height:90vh;overflow:auto}
@@ -44,7 +43,6 @@
     .link-input,.check-input{display:flex;gap:6px;margin-top:6px}
     .link-input input,.check-input input{flex:1}
     #taskDialog .actions{display:flex;justify-content:flex-end;gap:10px}
-
     #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#111;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s}
     #toast.show{opacity:1}
   </style>
@@ -59,6 +57,7 @@
       <div class="right">
         <button id="driveSignIn" class="btn">🔑 Sign in to Drive</button>
         <button id="backupNow" class="btn" disabled>💾 Backup Now</button>
+        <button id="restoreBackup" class="btn" disabled>♻ Restore Backup</button>
         <label class="switch"><input type="checkbox" id="autoBackup" disabled> Auto-backup</label>
       </div>
     </div>
@@ -132,13 +131,12 @@
       <div class="assignee-badge"></div>
     </article>
   </template>
-
-  <!-- Firebase + App -->
+    <!-- Firebase + App -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-    // ===== Firebase Config (yours) =====
+    // === Firebase Config ===
     const firebaseConfig = {
       apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
       authDomain: "kanben-acutesoft.firebaseapp.com",
@@ -148,486 +146,204 @@
       appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
       measurementId: "G-GND9Q3PN18"
     };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const kanbanRef = doc(db,"kanban","prod");
 
-    // ===== Google Drive OAuth (GIS) =====
-    const GOOGLE_CLIENT_ID = "21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com"; // <-- replace
-    let driveAccessToken = null;
-    let tokenClient = null;
-    let autoBackup = false;
-    let lastBackupAt = 0;
-    const loadGIS = () => new Promise(res => {
-      const s = document.createElement('script');
-      s.src = "https://accounts.google.com/gsi/client";
-      s.async = true; s.defer = true;
-      s.onload = res;
-      document.head.appendChild(s);
-    });
-
-    // ===== Toast =====
+    // === Toast ===
     const toast = (msg) => {
       const t = document.getElementById('toast');
       t.textContent = msg; t.classList.add('show');
-      clearTimeout(t._hide); t._hide = setTimeout(()=>t.classList.remove('show'), 2000);
+      clearTimeout(t._hide); t._hide=setTimeout(()=>t.classList.remove('show'),2000);
     };
 
-    // ===== App State =====
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    // === State ===
+    let state={projects:{},order:[]};
+    const uid=()=>Math.random().toString(36).slice(2,9);
 
-    // Use ?doc=staging for safe workspace; default 'prod'
-    const DOC_ID = new URLSearchParams(location.search).get('doc') || 'prod';
-    const docRef = doc(db, "kanban", DOC_ID);
+    // === Firestore Sync ===
+    async function save(){await setDoc(kanbanRef,state);}
+    onSnapshot(kanbanRef,(snap)=>{if(snap.exists()){state=snap.data();render();}});
 
-    const state = { projects:{}, order:[] };
-    const uid = () => Math.random().toString(36).slice(2,9);
+    // === Google Drive Backup + Restore ===
+    const GOOGLE_CLIENT_ID="YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com";
+    let driveAccessToken=null,tokenClient=null;
+    const loadGIS=()=>new Promise(res=>{const s=document.createElement('script');s.src="https://accounts.google.com/gsi/client";s.async=true;s.defer=true;s.onload=res;document.head.appendChild(s);});
+    await loadGIS();
+    tokenClient=google.accounts.oauth2.initTokenClient({
+      client_id:GOOGLE_CLIENT_ID,
+      scope:"https://www.googleapis.com/auth/drive.file",
+      callback:(t)=>{driveAccessToken=t.access_token;document.getElementById("backupNow").disabled=false;document.getElementById("restoreBackup").disabled=false;document.getElementById("autoBackup").disabled=false;toast("Drive connected");}
+    });
+    document.getElementById("driveSignIn").onclick=()=>tokenClient.requestAccessToken();
+    document.getElementById("backupNow").onclick=()=>doBackup();
+    document.getElementById("restoreBackup").onclick=()=>doRestore();
 
-    const save = async () => {
-      try {
-        await setDoc(docRef, JSON.parse(JSON.stringify(state)));
-        console.log('[kanban] saved');
-        if (driveAccessToken && autoBackup) maybeBackup();
-      } catch (e) { console.error('[kanban] save failed', e); }
-    };
+    async function doBackup(){
+      const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+      const metadata={name:`kanban-backup-${new Date().toISOString()}.json`,mimeType:"application/json",parents:["root"]};
+      const form=new FormData();
+      form.append("metadata",new Blob([JSON.stringify(metadata)],{type:"application/json"}));
+      form.append("file",blob);
+      await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:new Headers({"Authorization":"Bearer "+driveAccessToken}),body:form});
+      toast("💾 Backup saved to Drive");
+    }
 
-    // ===== DOM =====
-    const boards = document.getElementById('boards');
-    const dialog = document.getElementById('taskDialog');
-    const form = dialog.querySelector('form');
+    async function doRestore(){
+      if(!driveAccessToken) return alert("Sign in first!");
+      const res=await fetch("https://www.googleapis.com/drive/v3/files?q=name contains 'kanban-backup'&orderBy=createdTime desc&fields=files(id,name)&pageSize=1",{headers:{Authorization:"Bearer "+driveAccessToken}});
+      const data=await res.json();const file=data.files?.[0];
+      if(!file){toast("⚠ No backups found");return;}
+      const res2=await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{headers:{Authorization:"Bearer "+driveAccessToken}});
+      const restored=await res2.json();
+      state=restored;await save();toast("♻ Restored latest backup");
+    }
 
-    // ===== Helpers =====
-    const ensureProject = (name) => {
-      if (!state.projects[name]) {
-        state.projects[name] = {
-          name,
-          columns: [{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],
-          tasks: {},
-          color: '#eaeaea',
-          collapsed: false
-        };
-        state.order.push(name);
-      }
-      return state.projects[name];
-    };
+    // === Render Functions ===
+    const boards=document.getElementById('boards');
 
-    const addLinkInput = (value) => {
-      const container = document.getElementById('linksContainer');
-      const div = document.createElement('div'); div.className='link-input';
-      const input = document.createElement('input'); input.type='text'; input.placeholder='website.com'; input.value=value||'';
-      const btn = document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove());
-      div.append(input, btn); container.appendChild(div);
-    };
-
-    const addCheckInput = (value) => {
-      const container = document.getElementById('checklistContainer');
-      const div = document.createElement('div'); div.className='check-input';
-      const input = document.createElement('input'); input.type='text'; input.placeholder='Task item'; input.value=value||'';
-      const btn = document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove());
-      div.append(input, btn); container.appendChild(div);
-    };
-
-    const openEditDialog = (project, t) => {
-      form.reset();
-      document.getElementById('linksContainer').innerHTML = '<label>Links</label> <button type="button" id="addLinkBtn" class="btn">Add Link</button>';
-      document.getElementById('checklistContainer').innerHTML = '<label>Tasks</label> <button type="button" id="addCheckBtn" class="btn">Add Item</button>';
-      document.getElementById('attachments').value = null;
-      document.getElementById('avatarFile').value = null;
-
-      document.getElementById('editId').value = t?.id || '';
-      document.getElementById('editProject').value = project?.name || '';
-      document.getElementById('title').value = t?.title || '';
-      document.getElementById('project').value = project?.name || '';
-      document.getElementById('assignee').value = t?.assignee || '';
-      document.getElementById('assigneeColor').value = t?.assigneeColor || '#555555';
-      document.getElementById('avatarUrl').value = t?.avatarUrl || '';
-      (t?.links||[]).forEach(l=>addLinkInput(l));
-      (t?.checklist||[]).forEach(item=>addCheckInput(item.text));
-      document.getElementById('details').value = t?.details || '';
-
-      dialog.showModal();
-    };
-
-    // ===== Render =====
-    const render = () => {
-      boards.innerHTML = '';
-      state.order.forEach((name, idx) => {
-        const p = state.projects[name];
-        if (p) boards.appendChild(renderBoard(p, idx));
+    function render(){
+      boards.innerHTML='';
+      state.order.forEach((name,i)=>{
+        const p=state.projects[name];
+        if(p) boards.appendChild(renderBoard(p,i));
       });
-    };
+      save();
+    }
 
-    const renderBoard = (p, idx) => {
-      const frag = document.getElementById('boardTemplate').content.cloneNode(true);
-      const b = frag.querySelector('.board');
-      const head = frag.querySelector('.board-head');
-      b.dataset.project = p.name;
-      frag.querySelector('.index-badge').textContent = idx + 1;
-      frag.querySelector('.project-name').textContent = p.name;
+    function renderBoard(p,idx){
+      const frag=document.getElementById('boardTemplate').content.cloneNode(true);
+      const b=frag.querySelector('.board'); b.dataset.project=p.name;
+      frag.querySelector('.index-badge').textContent=idx+1;
+      const titleEl=frag.querySelector('.project-name'); titleEl.textContent=p.name;
+      const cols=frag.querySelector('.columns');
+      if(p.collapsed) cols.style.display="none";
 
-      // header color
-      head.style.background = p.color || '#eaeaea';
-      const picker = frag.querySelector('.boardColorPicker');
-      picker.value = p.color || '#eaeaea';
-      picker.addEventListener('input', async () => {
-        p.color = picker.value;
-        head.style.background = p.color;
-        await save();
-      });
+      frag.querySelector('.collapse-toggle').onclick=()=>{p.collapsed=!p.collapsed;render();};
+      frag.querySelector('.move-up').onclick=()=>{if(idx>0){[state.order[idx-1],state.order[idx]]=[state.order[idx],state.order[idx-1]];render();}};
+      frag.querySelector('.move-down').onclick=()=>{if(idx<state.order.length-1){[state.order[idx+1],state.order[idx]]=[state.order[idx],state.order[idx+1]];render();}};
+      frag.querySelector('.boardColorPicker').value=p.color||"#ffffff";
+      frag.querySelector('.boardColorPicker').oninput=(e)=>{p.color=e.target.value;b.querySelector('.board-head').style.background=p.color;save();};
+      frag.querySelector('.delete-board').onclick=()=>{const pw=prompt("Enter GODMODE! password");if(pw==="GODMODE!"){delete state.projects[p.name];state.order=state.order.filter(x=>x!==p.name);render();}};
 
-      // collapse/expand
-      const collapseBtn = frag.querySelector('.collapse-toggle');
-      b.classList.toggle('collapsed', !!p.collapsed);
-      collapseBtn.textContent = p.collapsed ? '▸' : '▾';
-      collapseBtn.addEventListener('click', async ()=>{
-        p.collapsed = !p.collapsed;
-        render(); await save();
-      });
-
-      // up/down buttons
-      const upBtn = frag.querySelector('.move-up');
-      const downBtn = frag.querySelector('.move-down');
-      upBtn.disabled = idx === 0;
-      downBtn.disabled = idx === state.order.length - 1;
-      upBtn.addEventListener('click', async ()=>{
-        const i = state.order.indexOf(p.name);
-        if (i > 0) {[state.order[i-1], state.order[i]] = [state.order[i], state.order[i-1]]; render(); await save();}
-      });
-      downBtn.addEventListener('click', async ()=>{
-        const i = state.order.indexOf(p.name);
-        if (i > -1 && i < state.order.length-1) {[state.order[i], state.order[i+1]] = [state.order[i+1], state.order[i]]; render(); await save();}
-      });
-
-      // delete board (GODMODE!)
-      frag.querySelector('.delete-board').addEventListener('click', async () => {
-        const pwd = prompt("Enter GODMODE! password to erase this board");
-        if (pwd !== "GODMODE!") return;
-        delete state.projects[p.name];
-        state.order = state.order.filter(n => n !== p.name);
-        render(); await save();
-      });
-
-      // add column
-      frag.querySelector('.add-column').addEventListener('click', async ()=>{
-        const name = prompt('New column name?', 'Backlog');
-        if(!name) return;
-        p.columns = p.columns || [];
-        p.columns.push({ id: uid(), name: name.trim() });
-        render(); await save();
-      });
-
-      // columns
-      const cols = frag.querySelector('.columns');
-      p.columns.forEach(c => {
-        const col = document.getElementById('columnTemplate').content.cloneNode(true);
-        const colEl = col.querySelector('.column');
-        col.querySelector('.col-name').textContent = c.name;
-        colEl.dataset.colid = c.id;
-        colEl.dataset.project = p.name;
-
-        // drop target for tasks (supports cross-board)
-        colEl.addEventListener('dragover', e => {
-          e.preventDefault(); colEl.classList.add('drag-over');
-        });
-        colEl.addEventListener('dragleave', () => colEl.classList.remove('drag-over'));
-        colEl.addEventListener('drop', async e => {
-          e.preventDefault(); colEl.classList.remove('drag-over');
-
-          let tid, srcName;
-          const plain = e.dataTransfer.getData('text/plain');
-          try { const obj = JSON.parse(plain); tid = obj?.tid; srcName = obj?.project; } catch {}
-          if (!tid) tid = e.dataTransfer.getData('text/task');
-          if (!srcName) srcName = e.dataTransfer.getData('text/project');
-
-          const srcP = state.projects[srcName];
-          if (!srcP || !srcP.tasks || !srcP.tasks[tid]) return;
-
-          // GODMODE to move into Completed
-          if (c.name === "Completed") {
-            const pwd = prompt("Enter GODMODE! password to move task to Completed");
-            if (pwd !== "GODMODE!") return;
-          }
-
-          const task = srcP.tasks[tid];
-          if (srcName !== p.name) {
-            delete srcP.tasks[tid];
-            if (!p.tasks) p.tasks = {};
-            p.tasks[tid] = task;
-          }
-          task.colId = c.id;
-
-          render(); await save();
-        });
-
-        // render tasks for this column
-        Object.values(p.tasks || {}).forEach(t => {
-          const targetCol = t.colId || p.columns[0].id;
-          if (targetCol === c.id) colEl.appendChild(renderTask(p, t));
-        });
-
+      p.columns.forEach(c=>{
+        const col=document.getElementById('columnTemplate').content.cloneNode(true);
+        col.querySelector('.col-name').textContent=c.name;
+        const colEl=col.querySelector('.column'); colEl.dataset.colId=c.id;
+        colEl.ondragover=(e)=>{e.preventDefault();colEl.classList.add('drag-over');};
+        colEl.ondragleave=()=>colEl.classList.remove('drag-over');
+        colEl.ondrop=(e)=>{e.preventDefault();colEl.classList.remove('drag-over');const tid=e.dataTransfer.getData("text");const task=Object.values(p.tasks).find(t=>t.id===tid);if(task){task.colId=c.id;save();render();}};
+        Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{colEl.appendChild(renderTask(p,t));});
         cols.appendChild(col);
       });
 
+      frag.querySelector('.add-column').onclick=()=>{const name=prompt("Column name?");if(name){p.columns.push({id:uid(),name});save();render();}};
       return frag;
-    };
+    }
 
-    const renderTask = (p, t) => {
-      const frag = document.getElementById('taskTemplate').content.cloneNode(true);
-      const card = frag.querySelector('.task');
-      card.dataset.id = t.id;
-      frag.querySelector('.t-title').textContent = t.title;
-      frag.querySelector('.t-details').textContent = t.details || '';
-
-      // links (https optional)
-      const linksDiv = frag.querySelector('.t-links');
-      (t.links || []).forEach(l => {
-        const a = document.createElement('a');
-        a.href = /^https?:\/\//i.test(l) ? l : 'https://' + l;
-        a.textContent = l; a.target = '_blank';
-        linksDiv.appendChild(a);
-      });
-
-      // attachments (blob previews for images)
-      const attDiv = frag.querySelector('.t-attachments');
-      (t.attachments || []).forEach(att => {
-        if (att.type && att.type.startsWith('image/')) {
-          const img = document.createElement('img'); img.src = att.url; img.alt = att.name || 'image';
-          attDiv.appendChild(img);
-        } else {
-          const a = document.createElement('a'); a.href = att.url; a.target='_blank'; a.textContent = att.name || 'Attachment';
-          attDiv.appendChild(a);
-        }
-      });
-
-      // checklist ("Tasks")
-      const cl = frag.querySelector('.checklist');
-      (t.checklist || []).forEach(item => {
-        const lbl = document.createElement('label');
-        if (item.done) lbl.classList.add('done');
-        const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = !!item.done;
-        cb.addEventListener('change', async () => {
-          item.done = cb.checked;
-          lbl.classList.toggle('done', cb.checked);
-          render(); await save();
-        });
-        lbl.append(cb, document.createTextNode(item.text));
-        cl.appendChild(lbl);
-      });
-
-      // timer
-      const timerEl = frag.querySelector('.timer');
-      const tick = () => {
-        if (!t.createdAt) return;
-        const elapsed = Date.now() - t.createdAt;
-        const days = Math.floor(elapsed / 86400000);
-        const hours = Math.floor((elapsed % 86400000) / 3600000);
-        const minutes = Math.floor((elapsed % 3600000) / 60000);
-        timerEl.textContent = `⏱ ${days}d ${hours}h ${minutes}m`;
-        if (elapsed > 86400000) {
-          const red = Math.min(255, 100 + days * 30);
-          timerEl.style.color = `rgb(${red},0,0)`;
-        }
-      };
-      tick(); setInterval(tick, 60000);
-
-      // assignee badge
-      const badge = frag.querySelector('.assignee-badge');
-      if (t.assignee) {
-        const av = document.createElement('div'); av.className = 'avatar';
-        if (t.avatarUrl) { av.style.backgroundImage = `url(${t.avatarUrl})`; av.style.backgroundColor = 'transparent'; }
-        else { av.textContent = (t.assignee[0]||'?').toUpperCase(); av.style.backgroundColor = t.assigneeColor || '#555'; }
-        const name = document.createElement('span'); name.textContent = t.assignee;
-        badge.append(av, name);
+    function renderTask(p,t){
+      const frag=document.getElementById('taskTemplate').content.cloneNode(true);
+      const card=frag.querySelector('.task'); card.dataset.id=t.id;
+      frag.querySelector('.t-title').textContent=t.title;
+      frag.querySelector('.t-details').textContent=t.details||'';
+      const linksDiv=frag.querySelector('.t-links'); (t.links||[]).forEach(l=>{const a=document.createElement('a');a.href=l;a.textContent=l;linksDiv.appendChild(a);});
+      const attDiv=frag.querySelector('.t-attachments'); (t.attachments||[]).forEach(att=>{const a=document.createElement('a');a.href=att.url;a.textContent=att.name;attDiv.appendChild(a);});
+      const cl=frag.querySelector('.checklist'); (t.checklist||[]).forEach((item)=>{const lbl=document.createElement('label');if(item.done)lbl.classList.add('done');const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!item.done;cb.onchange=()=>{item.done=cb.checked;save();render();};lbl.appendChild(cb);lbl.append(item.text);cl.appendChild(lbl);});
+      frag.querySelector('.delete-btn').onclick=()=>{if(confirm('Delete task?')){delete p.tasks[t.id];save();render();}};
+      card.ondragstart=(e)=>{e.dataTransfer.setData("text",t.id);};
+      card.onclick=(e)=>{if(e.target.classList.contains('delete-btn'))return;openEditDialog(p,t);};
+      const badge=frag.querySelector('.assignee-badge'); if(t.assignee){const av=document.createElement('div');av.className="avatar";if(t.avatarUrl)av.style.backgroundImage=`url(${t.avatarUrl})`;else av.textContent=t.assignee[0].toUpperCase();av.style.background=t.assigneeColor||"#555";badge.appendChild(av);badge.append(t.assignee);}
+      const timer=frag.querySelector('.timer'); if(t.created){
+        const age=Date.now()-t.created; const days=Math.floor(age/86400000); const hrs=Math.floor((age%86400000)/3600000);
+        timer.textContent=`⏱ ${days}d ${hrs}h`;
+        if(age>86400000){timer.style.color=`rgb(255,${Math.max(0,200-days*30)},${Math.max(0,200-days*30)})`;}
       }
-
-      // delete
-      frag.querySelector('.delete-btn').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (confirm('Delete this task?')) {
-          delete p.tasks[t.id];
-          render(); await save();
-        }
-      });
-
-      // edit
-      card.addEventListener('click', e => {
-        if (e.target.classList.contains('delete-btn')) return;
-        openEditDialog(p, t);
-      });
-
-      // drag payload
-      card.addEventListener('dragstart', e => {
-        const payload = JSON.stringify({ tid: t.id, project: p.name });
-        e.dataTransfer.setData('text/plain', payload);
-        e.dataTransfer.setData('text/task', t.id);
-        e.dataTransfer.setData('text/project', p.name);
-      });
-
       return frag;
-    };
+    }
+        // === Task Dialog ===
+    const dialog=document.getElementById('taskDialog');
+    const form=dialog.querySelector('form');
+    document.getElementById('addTaskBtn').onclick=()=>openEditDialog();
+    document.getElementById('cancelCreate').onclick=()=>dialog.close();
 
-    // ===== Snapshot → state =====
-    onSnapshot(docRef, snap => {
-      if (snap.exists()) {
-        const data = snap.data();
-        state.projects = data.projects || {};
-        state.order = data.order || Object.keys(state.projects);
-        render();
+    dialog.addEventListener('click',(e)=>{
+      if(e.target.id==='addLinkBtn'){addLinkInput('');}
+      else if(e.target.id==='addCheckBtn'){addCheckInput('');}
+    });
+
+    function addLinkInput(value){
+      const container=document.getElementById('linksContainer');
+      const div=document.createElement('div');div.className='link-input';
+      const input=document.createElement('input');input.type='text';input.placeholder='Link';input.value=value||'';
+      const btn=document.createElement('button');btn.type='button';btn.textContent='✖';btn.onclick=()=>div.remove();
+      div.append(input,btn);container.appendChild(div);
+    }
+    function addCheckInput(value){
+      const container=document.getElementById('checklistContainer');
+      const div=document.createElement('div');div.className='check-input';
+      const input=document.createElement('input');input.type='text';input.placeholder='Task';input.value=value||'';
+      const btn=document.createElement('button');btn.type='button';btn.textContent='✖';btn.onclick=()=>div.remove();
+      div.append(input,btn);container.appendChild(div);
+    }
+
+    function openEditDialog(project,t){
+      form.reset();
+      document.getElementById('linksContainer').innerHTML='<label>Links</label> <button type="button" id="addLinkBtn">Add Link</button>';
+      document.getElementById('checklistContainer').innerHTML='<label>Tasks</label> <button type="button" id="addCheckBtn">Add Item</button>';
+      document.getElementById('attachments').value=null;
+      if(t){
+        document.getElementById('editId').value=t.id;
+        document.getElementById('title').value=t.title;
+        document.getElementById('project').value=project.name;
+        document.getElementById('assignee').value=t.assignee||'';
+        (t.links||[]).forEach(l=>addLinkInput(l));
+        (t.checklist||[]).forEach(item=>addCheckInput(item.text));
+        document.getElementById('details').value=t.details||'';
       } else {
-        // bootstrap first doc
-        const sample = {
-          name:'Sample Project',
-          columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],
-          tasks:{}, color:'#eaeaea', collapsed:false
-        };
-        const tid = uid();
-        sample.tasks[tid] = {
-          id:tid, title:'Example Task', details:'Edit me to get started',
-          assignee:'You', assigneeColor:'#555', links:['example.com'],
-          attachments:[], checklist:[{text:'First step',done:false}],
-          createdAt:Date.now(), colId: sample.columns[0].id
-        };
-        state.projects[sample.name] = sample; state.order = [sample.name];
-        render(); save();
+        document.getElementById('editId').value='';
       }
-    });
+      dialog.showModal();
+    }
 
-    // ===== Global UI =====
-    document.getElementById('addTaskBtn').addEventListener('click', () => openEditDialog());
-    document.getElementById('cancelCreate').addEventListener('click', () => dialog.close());
-    dialog.addEventListener('click', (e) => {
-      if (e.target?.id === 'addLinkBtn') { e.preventDefault(); addLinkInput(''); }
-      if (e.target?.id === 'addCheckBtn') { e.preventDefault(); addCheckInput(''); }
-    });
-
-    // Create / Update submit
-    form.addEventListener('submit', async (e) => {
+    form.onsubmit=async(e)=>{
       e.preventDefault();
-      const id = document.getElementById('editId').value;
-      const originalProject = document.getElementById('editProject').value;
-      const title = document.getElementById('title').value.trim();
-      const projectName = document.getElementById('project').value.trim();
-      if (!title || !projectName) return;
+      const id=document.getElementById('editId').value;
+      const title=document.getElementById('title').value.trim();
+      const project=document.getElementById('project').value.trim();
+      if(!title||!project)return;
+      const assignee=document.getElementById('assignee').value.trim();
+      const links=[...document.querySelectorAll('#linksContainer input[type="text"]')].map(i=>i.value).filter(Boolean);
+      const details=document.getElementById('details').value.trim();
+      const checklist=[...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value,done:false})).filter(i=>i.text);
+      const files=[...document.getElementById('attachments').files].map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
 
-      const assignee = document.getElementById('assignee').value.trim();
-      const assigneeColor = document.getElementById('assigneeColor').value;
-      const avatarUrlInput = document.getElementById('avatarUrl').value.trim();
-      const avatarFile = document.getElementById('avatarFile').files[0];
-      const avatarFinal = avatarFile ? URL.createObjectURL(avatarFile) : (avatarUrlInput || '');
+      const proj=state.projects[project]||(state.projects[project]={name:project,columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],tasks:{},color:"#eee",collapsed:false});
+      if(!state.order.includes(project)) state.order.push(project);
 
-      const links = [...document.querySelectorAll('#linksContainer input[type="text"]')].map(i=>i.value.trim()).filter(Boolean);
-      const details = document.getElementById('details').value.trim();
-      const checklist = [...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value.trim(),done:false})).filter(i=>i.text);
-      const files = [...document.getElementById('attachments').files].map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
-
-      let proj = ensureProject(projectName);
-
-      try {
-        if (id) {
-          // edit (and possible move across boards)
-          const fromProject = state.projects[originalProject] || proj;
-          if (fromProject !== proj && fromProject?.tasks?.[id]) {
-            const moving = fromProject.tasks[id];
-            delete fromProject.tasks[id];
-            proj.tasks[id] = moving;
-          }
-          const target = proj.tasks[id] || { id, colId: proj.columns[0].id, createdAt: Date.now() };
-          Object.assign(target, { title, details, assignee, assigneeColor, avatarUrl: avatarFinal, links, attachments: files, checklist });
-          proj.tasks[id] = target;
-        } else {
-          const newId = uid();
-          proj.tasks[newId] = {
-            id:newId, title, details, assignee, assigneeColor, avatarUrl: avatarFinal,
-            links, attachments: files, checklist, createdAt: Date.now(), colId: proj.columns[0].id
-          };
-        }
-        render(); await save();
-      } finally {
-        dialog.close();
+      if(id && proj.tasks[id]){
+        Object.assign(proj.tasks[id],{title,details,assignee,links,attachments:files,checklist});
+      } else {
+        const newId=uid();
+        proj.tasks[newId]={id:newId,title,details,assignee,links,attachments:files,checklist,colId:proj.columns[0].id,created:Date.now()};
       }
-    });
-
-    // ===== Google Drive Backups =====
-    await loadGIS();
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: (resp) => {
-        if (resp?.access_token) {
-          driveAccessToken = resp.access_token;
-          document.getElementById('backupNow').disabled = false;
-          document.getElementById('autoBackup').disabled = true; // enable after first manual backup succeeds
-          toast('Drive connected');
-        }
-      }
-    });
-
-    document.getElementById('driveSignIn').addEventListener('click', () => {
-      tokenClient.requestAccessToken({ prompt: 'consent' });
-    });
-
-    document.getElementById('backupNow').addEventListener('click', async () => {
-      try { await backupToDrive(); toast('Backup saved to Drive'); document.getElementById('autoBackup').disabled = false; }
-      catch (e) { console.error(e); toast('Backup failed'); }
-    });
-
-    document.getElementById('autoBackup').addEventListener('change', (e)=>{
-      autoBackup = e.target.checked;
-      toast(autoBackup ? 'Auto-backup ON' : 'Auto-backup OFF');
-    });
-
-    const maybeBackup = () => {
-      const now = Date.now();
-      if (!autoBackup || !driveAccessToken) return;
-      if (now - lastBackupAt < 60000) return; // throttle 60s
-      lastBackupAt = now;
-      backupToDrive().catch(err=>console.error('auto backup failed', err));
+      await save();
+      dialog.close();
+      render();
     };
 
-    async function ensureBackupFolder() {
-      // Find or create "Zen Kanban Backups"
-      let r = await fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("name='Zen Kanban Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false") + '&fields=files(id,name)&pageSize=1', {
-        headers: { Authorization: 'Bearer ' + driveAccessToken }
-      });
-      const found = await r.json();
-      if (found?.files?.length) return found.files[0].id;
+    // === Bootstrap ===
+    (async()=>{
+      const snap=await getDoc(kanbanRef);
+      if(!snap.exists()){
+        const sample={name:'Sample',columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],tasks:{},color:"#eee",collapsed:false};
+        const tid=uid();
+        sample.tasks[tid]={id:tid,title:'First Task',details:'Edit me',assignee:'You',links:[],attachments:[],checklist:[],colId:sample.columns[0].id,created:Date.now()};
+        state.projects[sample.name]=sample;state.order=[sample.name];
+        await save();
+      } else {state=snap.data();}
+      render();
+    })();
 
-      r = await fetch('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Zen Kanban Backups', mimeType: 'application/vnd.google-apps.folder' })
-      });
-      const created = await r.json();
-      if (!created?.id) throw new Error('Folder create failed');
-      return created.id;
-    }
-
-    async function backupToDrive() {
-      if (!driveAccessToken) throw new Error('Not signed in');
-      const folderId = await ensureBackupFolder();
-      const ts = new Date().toISOString().replace(/[:.]/g,'-');
-      const metadata = {
-        name: `kanban-${DOC_ID}-backup-${ts}.json`,
-        mimeType: 'application/json',
-        parents: [folderId]
-      };
-      const payload = JSON.stringify(state);
-      const boundary = '-------314159265358979323846';
-      const delimiter = `\r\n--${boundary}\r\n`;
-      const closeDelim = `\r\n--${boundary}--`;
-
-      const body =
-        delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-        JSON.stringify(metadata) +
-        delimiter + 'Content-Type: application/json\r\n\r\n' +
-        payload +
-        closeDelim;
-
-      const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'multipart/related; boundary=' + boundary },
-        body
-      });
-      if (!r.ok) throw new Error('Drive upload failed');
-    }
   </script>
 </body>
 </html>
