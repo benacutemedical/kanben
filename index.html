@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Zen Kanban To-Do</title>
+  <title>Zen Kanban (Secure)</title>
   <style>
     :root{--radius:12px}
     *{box-sizing:border-box}
@@ -14,7 +14,6 @@
     .btn{cursor:pointer;border:1px solid #ccc;background:#fff;padding:6px 10px;border-radius:8px}
     .btn.primary{background:#000;color:#fff;border-color:#000}
     .btn:disabled{opacity:.5;cursor:not-allowed}
-    label.switch{display:inline-flex;align-items:center;gap:6px;font-size:12px}
     .boards{max-width:1100px;margin:20px auto;display:flex;flex-direction:column;gap:16px}
     .board{border:1px solid #ddd;border-radius:var(--radius);background:#fff}
     .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
@@ -45,30 +44,28 @@
     #taskDialog .actions{display:flex;justify-content:flex-end;gap:10px}
     #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#111;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s}
     #toast.show{opacity:1}
-    #logoHeader img{max-height:60px;object-fit:contain}
   </style>
 </head>
 <body>
   <header>
     <div class="wrap">
       <div class="left">
-        <div id="logoHeader"></div>
-        <input type="file" id="logoUpload" accept="image/*" style="display:none">
-        <button id="uploadLogoBtn" class="btn">📷 Upload Logo</button>
+        <!-- Logo will go here -->
+        <img id="logo" alt="Logo" style="max-height:50px">
+        <button id="uploadLogoBtn" class="btn">Upload Logo</button>
+        <input id="logoUpload" type="file" accept="image/*" style="display:none">
         <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
       </div>
       <div class="right">
-        <button id="driveSignIn" class="btn">🔑 Sign in to Drive</button>
-        <button id="backupNow" class="btn" disabled>💾 Backup Now</button>
-        <button id="restoreBackup" class="btn" disabled>♻ Restore Backup</button>
-        <label class="switch"><input type="checkbox" id="autoBackup" disabled> Auto-backup</label>
+        <!-- Auth buttons injected by script -->
       </div>
     </div>
   </header>
 
   <main class="boards" id="boards"></main>
   <div id="toast"></div>
-    <!-- Task Dialog -->
+
+  <!-- Task Dialog -->
   <dialog id="taskDialog">
     <form>
       <input type="hidden" id="editId">
@@ -95,8 +92,7 @@
       </div>
     </form>
   </dialog>
-
-  <!-- Templates -->
+    <!-- Templates -->
   <template id="boardTemplate">
     <section class="board">
       <div class="board-head">
@@ -139,13 +135,14 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
     import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-storage.js";
+    import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
     // === Firebase Config ===
     const firebaseConfig = {
       apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
       authDomain: "kanben-acutesoft.firebaseapp.com",
       projectId: "kanben-acutesoft",
-      storageBucket: "kanben-acutesoft.appspot.com",
+      storageBucket: "kanben-acutesoft.firebasestorage.app",
       messagingSenderId: "637159945341",
       appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
       measurementId: "G-GND9Q3PN18"
@@ -155,165 +152,48 @@
     const storage = getStorage(app);
     const kanbanRef = doc(db,"kanban","prod");
 
-    // === Toast ===
-    const toast = (msg) => {
-      const t = document.getElementById('toast');
-      t.textContent = msg; t.classList.add('show');
-      clearTimeout(t._hide); t._hide=setTimeout(()=>t.classList.remove('show'),2000);
-    };
+    // === Auth ===
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+    const rightHeader = document.querySelector("header .right");
 
-    // === State ===
-    let state={projects:{},order:[],logoUrl:""};
-    const uid=()=>Math.random().toString(36).slice(2,9);
+    const signInBtn = document.createElement("button");
+    signInBtn.textContent = "🔑 Sign In with Google";
+    signInBtn.className = "btn";
+    rightHeader.appendChild(signInBtn);
 
-    // === Firestore Sync ===
-    async function save(){await setDoc(kanbanRef,state);}
-    onSnapshot(kanbanRef,(snap)=>{if(snap.exists()){state=snap.data();render();}});
-// === Google Drive OAuth (GIS) + Backup / Restore ===
-const GOOGLE_CLIENT_ID = "21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com";
-let driveAccessToken = null;
-let tokenClient = null;
-let lastBackupAt = 0;
-let autoBackupEnabled = false;
+    const signOutBtn = document.createElement("button");
+    signOutBtn.textContent = "🚪 Sign Out";
+    signOutBtn.className = "btn";
+    signOutBtn.style.display = "none";
+    rightHeader.appendChild(signOutBtn);
 
-function loadGIS(){
-  return new Promise((resolve, reject)=>{
-    const s=document.createElement('script');
-    s.src="https://accounts.google.com/gsi/client";
-    s.async=true; s.defer=true;
-    s.onload=resolve; s.onerror=reject;
-    document.head.appendChild(s);
-  });
-}
+    signInBtn.onclick = async () => { try { await signInWithPopup(auth, provider); } catch(e){ console.error(e); } };
+    signOutBtn.onclick = async () => { try { await signOut(auth); } catch(e){ console.error(e); } };
 
-await loadGIS();
-tokenClient = google.accounts.oauth2.initTokenClient({
-  client_id: GOOGLE_CLIENT_ID,
-  scope: "https://www.googleapis.com/auth/drive.file",
-  callback: (resp) => {
-    if (resp?.access_token) {
-      driveAccessToken = resp.access_token;
-      document.getElementById("backupNow").disabled = false;
-      document.getElementById("restoreBackup").disabled = false;
-      document.getElementById("autoBackup").disabled = false;
-      toast("Drive connected");
-    }
-  }
-});
-
-document.getElementById("driveSignIn").onclick = () =>
-  tokenClient.requestAccessToken({ prompt: "consent" });
-
-document.getElementById("autoBackup").onchange = (e)=>{
-  autoBackupEnabled = e.target.checked;
-  toast(autoBackupEnabled ? "Auto-backup ON" : "Auto-backup OFF");
-};
-
-// Throttled auto-backup helper (call this at the end of your save() if desired)
-async function maybeAutoBackup(){
-  if (!autoBackupEnabled || !driveAccessToken) return;
-  const now = Date.now();
-  if (now - lastBackupAt < 60_000) return; // 60s throttle
-  lastBackupAt = now;
-  try { await backupToDrive(); toast("Auto-backup complete"); } catch(e){ console.error(e); }
-}
-
-async function ensureBackupFolder(){
-  const q = encodeURIComponent("name='Zen Kanban Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false");
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=1`, {
-    headers: { Authorization: "Bearer " + driveAccessToken }
-  });
-  const js = await r.json();
-  if (js.files?.length) return js.files[0].id;
-
-  const r2 = await fetch("https://www.googleapis.com/drive/v3/files", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + driveAccessToken, "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "Zen Kanban Backups", mimeType: "application/vnd.google-apps.folder" })
-  });
-  const created = await r2.json();
-  if (!created?.id) throw new Error("Failed to create backup folder");
-  return created.id;
-}
-
-async function backupToDrive(){
-  if (!driveAccessToken) throw new Error("Not signed in to Drive");
-  const folderId = await ensureBackupFolder();
-  const ts = new Date().toISOString().replace(/[:.]/g,'-');
-  const metadata = {
-    name: `kanban-prod-backup-${ts}.json`,
-    mimeType: "application/json",
-    parents: [folderId]
-  };
-  const payload = JSON.stringify(state);
-  const boundary = "-------314159265358979323846";
-  const body =
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`+
-    JSON.stringify(metadata) + `\r\n--${boundary}\r\n`+
-    `Content-Type: application/json\r\n\r\n`+
-    payload + `\r\n--${boundary}--`;
-
-  const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",{
-    method:"POST",
-    headers:{ Authorization:"Bearer "+driveAccessToken, "Content-Type":"multipart/related; boundary="+boundary },
-    body
-  });
-  if (!r.ok) throw new Error("Drive upload failed");
-}
-
-async function restoreFromDrive(){
-  if (!driveAccessToken) throw new Error("Not signed in to Drive");
-  const folderId = await ensureBackupFolder();
-  const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and name contains 'kanban-prod-backup-'`);
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=files(id,name)&pageSize=1`,{
-    headers:{ Authorization:"Bearer "+driveAccessToken }
-  });
-  const js = await r.json();
-  const file = js.files?.[0];
-  if (!file) throw new Error("No backups found");
-
-  const download = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{
-    headers:{ Authorization:"Bearer "+driveAccessToken }
-  });
-  const restored = await download.json();
-  if (!restored?.projects) throw new Error("Invalid backup format");
-
-  state = restored;
-  await setDoc(kanbanRef, state);
-  toast("♻ Restored latest backup");
-}
-
-// Wire buttons
-document.getElementById("backupNow").onclick = async ()=> {
-  try { await backupToDrive(); toast("💾 Backup saved to Drive"); }
-  catch(e){ console.error(e); toast("Backup failed"); }
-};
-document.getElementById("restoreBackup").onclick = async ()=> {
-  try { await restoreFromDrive(); }
-  catch(e){ console.error(e); toast("Restore failed"); }
-};
-    // === Logo Upload ===
-    document.getElementById("uploadLogoBtn").onclick=()=>document.getElementById("logoUpload").click();
-    document.getElementById("logoUpload").onchange=async(e)=>{
-      const file=e.target.files[0];
-      if(!file) return;
-      const fileRef=ref(storage,"logo/"+file.name);
-      await uploadBytes(fileRef,file);
-      state.logoUrl=await getDownloadURL(fileRef);
-      save();render();
-    };
-
-    // === Render Functions ===
+    onAuthStateChanged(auth, user => {
+      if(user){
+        signInBtn.style.display="none";
+        signOutBtn.style.display="inline-block";
+        document.getElementById("boards").style.display="flex";
+        toast("✅ Logged in as " + user.email);
+      } else {
+        signInBtn.style.display="inline-block";
+        signOutBtn.style.display="none";
+        document.getElementById("boards").style.display="none";
+        toast("❌ Signed out");
+      }
+    });
+        // === Render Functions ===
     const boards=document.getElementById('boards');
+
     function render(){
-      // logo
-      const logoDiv=document.getElementById("logoHeader");
-      logoDiv.innerHTML= state.logoUrl?`<img src="${state.logoUrl}">`:"";
       boards.innerHTML='';
       state.order.forEach((name,i)=>{
         const p=state.projects[name];
         if(p) boards.appendChild(renderBoard(p,i));
       });
+      save();
     }
 
     function renderBoard(p,idx){
@@ -324,12 +204,12 @@ document.getElementById("restoreBackup").onclick = async ()=> {
       const cols=frag.querySelector('.columns');
       if(p.collapsed) cols.style.display="none";
 
-      frag.querySelector('.collapse-toggle').onclick=()=>{p.collapsed=!p.collapsed;save();render();};
-      frag.querySelector('.move-up').onclick=()=>{if(idx>0){[state.order[idx-1],state.order[idx]]=[state.order[idx],state.order[idx-1]];save();render();}};
-      frag.querySelector('.move-down').onclick=()=>{if(idx<state.order.length-1){[state.order[idx+1],state.order[idx]]=[state.order[idx],state.order[idx+1]];save();render();}};
+      frag.querySelector('.collapse-toggle').onclick=()=>{p.collapsed=!p.collapsed;render();};
+      frag.querySelector('.move-up').onclick=()=>{if(idx>0){[state.order[idx-1],state.order[idx]]=[state.order[idx],state.order[idx-1]];render();}};
+      frag.querySelector('.move-down').onclick=()=>{if(idx<state.order.length-1){[state.order[idx+1],state.order[idx]]=[state.order[idx],state.order[idx+1]];render();}};
       frag.querySelector('.boardColorPicker').value=p.color||"#ffffff";
       frag.querySelector('.boardColorPicker').oninput=(e)=>{p.color=e.target.value;b.querySelector('.board-head').style.background=p.color;save();};
-      frag.querySelector('.delete-board').onclick=()=>{const pw=prompt("Enter GODMODE! password");if(pw==="GODMODE!"){delete state.projects[p.name];state.order=state.order.filter(x=>x!==p.name);save();render();}};
+      frag.querySelector('.delete-board').onclick=()=>{const pw=prompt("Enter GODMODE! password");if(pw==="GODMODE!"){delete state.projects[p.name];state.order=state.order.filter(x=>x!==p.name);render();}};
 
       p.columns.forEach(c=>{
         const col=document.getElementById('columnTemplate').content.cloneNode(true);
@@ -341,6 +221,7 @@ document.getElementById("restoreBackup").onclick = async ()=> {
         Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{colEl.appendChild(renderTask(p,t));});
         cols.appendChild(col);
       });
+
       frag.querySelector('.add-column').onclick=()=>{const name=prompt("Column name?");if(name){p.columns.push({id:uid(),name});save();render();}};
       return frag;
     }
@@ -351,46 +232,66 @@ document.getElementById("restoreBackup").onclick = async ()=> {
       frag.querySelector('.t-title').textContent=t.title;
       frag.querySelector('.t-details').textContent=t.details||'';
 
+      // Links
       const linksDiv=frag.querySelector('.t-links');
-      (t.links||[]).forEach(l=>{const a=document.createElement('a');a.href=l;a.textContent=l;linksDiv.appendChild(a);});
+      (t.links||[]).forEach(l=>{
+        const a=document.createElement('a');
+        a.href=l; a.textContent=l; linksDiv.appendChild(a);
+      });
 
+      // Attachments
       const attDiv=frag.querySelector('.t-attachments');
-      (t.attachments||[]).forEach(att=>{const a=document.createElement('a');a.href=att.url;a.textContent=att.name;attDiv.appendChild(a);});
+      (t.attachments||[]).forEach(att=>{
+        const a=document.createElement('a'); a.href=att.url; a.textContent=att.name; attDiv.appendChild(a);
+      });
 
+      // Checklist
       const cl=frag.querySelector('.checklist');
       (t.checklist||[]).forEach(item=>{
-        const lbl=document.createElement('label');if(item.done) lbl.classList.add('done');
-        const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!item.done;
+        const lbl=document.createElement('label');
+        if(item.done) lbl.classList.add('done');
+        const cb=document.createElement('input');
+        cb.type='checkbox'; cb.checked=!!item.done;
         cb.onchange=()=>{item.done=cb.checked;save();render();};
         lbl.appendChild(cb); lbl.append(item.text); cl.appendChild(lbl);
       });
 
+      // Delete
       frag.querySelector('.delete-btn').onclick=()=>{if(confirm('Delete task?')){delete p.tasks[t.id];save();render();}};
+
+      // Drag + click edit
       card.ondragstart=(e)=>{e.dataTransfer.setData("text",t.id);};
       card.onclick=(e)=>{if(e.target.classList.contains('delete-btn'))return;openEditDialog(p,t);};
 
+      // Assignee badge
       const badge=frag.querySelector('.assignee-badge');
       if(t.assignee){
-        const av=document.createElement('div');av.className="avatar";
+        const av=document.createElement('div'); av.className="avatar";
         if(t.avatarUrl) av.style.backgroundImage=`url(${t.avatarUrl})`;
         else av.textContent=t.assignee[0].toUpperCase();
         av.style.background=t.assigneeColor||"#555";
-        badge.appendChild(av);badge.append(t.assignee);
+        badge.appendChild(av); badge.append(t.assignee);
       }
 
+      // Timer
       const timer=frag.querySelector('.timer');
       if(!t.created) t.created=Date.now();
       const age=Date.now()-t.created;
       const hours=Math.floor(age/3600000);
       const days=Math.floor(age/86400000);
       timer.textContent=`⏱ ${hours}h`;
-      if(age>24*3600000){timer.style.color=`rgb(${Math.min(255,150+days*20)},0,0)`;}
+      if(age>24*3600000){
+        timer.style.color=`rgb(${Math.min(255,150+days*20)},0,0)`;
+      }
+
       return frag;
     }
 
     // === Task Dialog ===
     const taskDialog=document.getElementById('taskDialog');
-    document.getElementById('addTaskBtn').onclick=()=>openEditDialog();
+    const addTaskBtn=document.getElementById('addTaskBtn');
+    addTaskBtn.onclick=()=>{openEditDialog();};
+
     document.getElementById('cancelCreate').onclick=()=>taskDialog.close();
 
     function openEditDialog(p=null,t=null){
@@ -405,12 +306,17 @@ document.getElementById("restoreBackup").onclick = async ()=> {
       taskDialog.showModal();
     }
 
-    taskDialog.querySelector('form').onsubmit=async(e)=>{
+    taskDialog.querySelector('form').onsubmit=(e)=>{
       e.preventDefault();
       const id=document.getElementById('editId').value||uid();
       const project=document.getElementById('project').value.trim();
       if(!state.projects[project]){
-        state.projects[project]={name:project,columns:[{id:"todo",name:"To Do"},{id:"doing",name:"Doing"},{id:"done",name:"Done"}],tasks:{},color:"#fff"};
+        state.projects[project]={
+          name:project,
+          columns:[{id:"todo",name:"To Do"},{id:"doing",name:"Doing"},{id:"done",name:"Done"}],
+          tasks:{},
+          color:"#fff"
+        };
         state.order.push(project);
       }
       const p=state.projects[project];
@@ -420,25 +326,18 @@ document.getElementById("restoreBackup").onclick = async ()=> {
         details:document.getElementById('details').value,
         assignee:document.getElementById('assignee').value,
         assigneeColor:document.getElementById('assigneeColor').value,
-        avatarUrl:"",
+        avatarUrl:document.getElementById('avatarUrl').value,
         checklist:[],
         links:[],
         attachments:[],
         created:Date.now(),
         colId:p.tasks[id]?.colId||"todo"
       };
-
-      const avatarFile=document.getElementById('avatarFile').files[0];
-      if(avatarFile){const refAv=ref(storage,"avatars/"+avatarFile.name);await uploadBytes(refAv,avatarFile);task.avatarUrl=await getDownloadURL(refAv);}
-      else task.avatarUrl=document.getElementById('avatarUrl').value;
-
-      const files=[...document.getElementById('attachments').files];
-      for(const f of files){const refFile=ref(storage,"attachments/"+f.name);await uploadBytes(refFile,f);const url=await getDownloadURL(refFile);task.attachments.push({name:f.name,url});}
-
       p.tasks[id]=task;
       save();render();
       taskDialog.close();
     };
+
   </script>
 </body>
 </html>
