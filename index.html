@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Zen Kanban To-Do (Cloud + Drive Backup)</title>
+  <title>Zen Kanban To-Do</title>
   <style>
     :root{--radius:12px}
     *{box-sizing:border-box}
@@ -14,6 +14,7 @@
     .btn{cursor:pointer;border:1px solid #ccc;background:#fff;padding:6px 10px;border-radius:8px}
     .btn.primary{background:#000;color:#fff;border-color:#000}
     .btn:disabled{opacity:.5;cursor:not-allowed}
+    label.switch{display:inline-flex;align-items:center;gap:6px;font-size:12px}
     .boards{max-width:1100px;margin:20px auto;display:flex;flex-direction:column;gap:16px}
     .board{border:1px solid #ddd;border-radius:var(--radius);background:#fff}
     .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
@@ -24,6 +25,7 @@
     .task h3{margin:0 0 4px;font-size:14px}
     .delete-btn{position:absolute;top:2px;right:2px;border:none;background:none;color:#a00;font-size:16px;cursor:pointer}
     .t-links a{display:block;font-size:12px;word-break:break-all;color:#0b67c2}
+    .t-attachments img{max-width:100px;max-height:80px;border:1px solid #ddd;border-radius:6px}
     .t-attachments a{display:inline-block;font-size:12px}
     .checklist label{display:flex;align-items:center;gap:6px;font-size:12px}
     .checklist label.done{color:#777;text-decoration:line-through}
@@ -43,17 +45,20 @@
     #taskDialog .actions{display:flex;justify-content:flex-end;gap:10px}
     #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#111;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s}
     #toast.show{opacity:1}
+    .logo-area img{max-height:50px}
   </style>
 </head>
 <body>
   <header>
     <div class="wrap">
-      <div class="left">
-        <strong>Zen Kanban</strong>
+      <div class="left logo-area">
+        <img id="logoImg" src="" alt="Logo" style="display:none"/>
+        <button id="uploadLogoBtn" class="btn">📷 Upload Logo</button>
+        <input type="file" id="logoUpload" accept="image/*" style="display:none">
         <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
       </div>
       <div class="right">
-        <button id="driveSignIn" class="btn">🔑 Sign in to Drive</button>
+        <button id="driveSignIn" class="btn">🔑 Connect Drive</button>
         <button id="backupNow" class="btn" disabled>💾 Backup Now</button>
         <button id="restoreBackup" class="btn" disabled>♻ Restore Backup</button>
       </div>
@@ -71,7 +76,19 @@
       <label>Title</label><input id="title" required>
       <label>Project</label><input id="project" required>
       <label>Assignee</label><input id="assignee" placeholder="Optional">
+      <label>Assignee Colour</label><input type="color" id="assigneeColor" value="#555555">
+      <label>Avatar URL</label><input id="avatarUrl" placeholder="https://...">
+      <label>Avatar Upload</label><input type="file" id="avatarFile" accept="image/*">
       <label>Details</label><textarea id="details"></textarea>
+      <label>Attachments</label><input type="file" id="attachments" multiple>
+      <div id="linksContainer">
+        <label>Links</label>
+        <button type="button" id="addLinkBtn" class="btn">Add Link</button>
+      </div>
+      <div id="checklistContainer">
+        <label>Tasks</label>
+        <button type="button" id="addCheckBtn" class="btn">Add Item</button>
+      </div>
       <div class="actions">
         <button type="button" id="cancelCreate" class="btn">Cancel</button>
         <button type="submit" class="btn primary">Save</button>
@@ -92,6 +109,7 @@
           <button class="move-down btn" title="Move board down">▼</button>
           <button class="collapse-toggle btn" title="Collapse/Expand">▾</button>
           <button class="add-column btn" title="Add a new column">＋</button>
+          <input type="color" class="boardColorPicker" title="Board header color">
           <button class="delete-board btn" title="Erase board">❌</button>
         </div>
       </div>
@@ -108,15 +126,19 @@
       <button class="delete-btn" title="Delete task">✖</button>
       <h3 class="t-title"></h3>
       <div class="t-details"></div>
+      <div class="t-links"></div>
+      <div class="t-attachments"></div>
+      <div class="checklist"></div>
       <span class="timer"></span>
       <div class="assignee-badge"></div>
     </article>
   </template>
-
-  <!-- Firebase + App -->
+    <!-- Firebase + App -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
     import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-storage.js";
+    import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
     // === Firebase Config ===
     const firebaseConfig = {
@@ -130,38 +152,67 @@
     };
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+    const storage = getStorage(app);
     const kanbanRef = doc(db,"kanban","prod");
 
+    // === Auth ===
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+    const rightHeader = document.querySelector("header .right");
+
+    const signInBtn = document.createElement("button");
+    signInBtn.textContent = "🔑 Sign In with Google";
+    signInBtn.className = "btn";
+    rightHeader.appendChild(signInBtn);
+
+    const signOutBtn = document.createElement("button");
+    signOutBtn.textContent = "🚪 Sign Out";
+    signOutBtn.className = "btn";
+    signOutBtn.style.display = "none";
+    rightHeader.appendChild(signOutBtn);
+
+    signInBtn.onclick = async () => { try { await signInWithPopup(auth, provider); } catch(e){ console.error(e); } };
+    signOutBtn.onclick = async () => { try { await signOut(auth); } catch(e){ console.error(e); } };
+
+    onAuthStateChanged(auth, user => {
+      if(user){
+        signInBtn.style.display="none";
+        signOutBtn.style.display="inline-block";
+        document.getElementById("boards").style.display="flex";
+        toast("✅ Logged in as " + user.email);
+      } else {
+        signInBtn.style.display="inline-block";
+        signOutBtn.style.display="none";
+        document.getElementById("boards").style.display="none";
+        toast("❌ Signed out");
+      }
+    });
+
+    // === Toast ===
+    const toast = (msg) => {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      clearTimeout(t._hide); t._hide=setTimeout(()=>t.classList.remove('show'),2000);
+    };
+
     // === State ===
-    let state={projects:{},order:[]};
+    let state={projects:{},order:[],logoUrl:""};
     const uid=()=>Math.random().toString(36).slice(2,9);
 
+    // === Firestore Sync ===
     async function save(){await setDoc(kanbanRef,state);}
     onSnapshot(kanbanRef,(snap)=>{if(snap.exists()){state=snap.data();render();}});
 
     // === Google Drive Backup + Restore ===
-    const GOOGLE_CLIENT_ID = "21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com";
+    const GOOGLE_CLIENT_ID="21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com";
     let driveAccessToken=null,tokenClient=null;
-
-    const loadGIS=()=>new Promise(res=>{
-      const s=document.createElement('script');
-      s.src="https://accounts.google.com/gsi/client";
-      s.async=true;s.defer=true;s.onload=res;
-      document.head.appendChild(s);
-    });
+    const loadGIS=()=>new Promise(res=>{const s=document.createElement('script');s.src="https://accounts.google.com/gsi/client";s.async=true;s.defer=true;s.onload=res;document.head.appendChild(s);});
     await loadGIS();
-
     tokenClient=google.accounts.oauth2.initTokenClient({
       client_id:GOOGLE_CLIENT_ID,
       scope:"https://www.googleapis.com/auth/drive.file",
-      callback:(t)=>{
-        driveAccessToken=t.access_token;
-        document.getElementById("backupNow").disabled=false;
-        document.getElementById("restoreBackup").disabled=false;
-        toast("Drive connected");
-      }
+      callback:(t)=>{driveAccessToken=t.access_token;document.getElementById("backupNow").disabled=false;document.getElementById("restoreBackup").disabled=false;toast("Drive connected");}
     });
-
     document.getElementById("driveSignIn").onclick=()=>tokenClient.requestAccessToken();
     document.getElementById("backupNow").onclick=()=>doBackup();
     document.getElementById("restoreBackup").onclick=()=>doRestore();
@@ -172,93 +223,116 @@
       const form=new FormData();
       form.append("metadata",new Blob([JSON.stringify(metadata)],{type:"application/json"}));
       form.append("file",blob);
-      await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{
-        method:"POST",
-        headers:new Headers({"Authorization":"Bearer "+driveAccessToken}),
-        body:form
-      });
+      await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:new Headers({"Authorization":"Bearer "+driveAccessToken}),body:form});
       toast("💾 Backup saved to Drive");
     }
 
     async function doRestore(){
       if(!driveAccessToken) return alert("Sign in first!");
       const res=await fetch("https://www.googleapis.com/drive/v3/files?q=name contains 'kanban-backup'&orderBy=createdTime desc&fields=files(id,name)&pageSize=1",{headers:{Authorization:"Bearer "+driveAccessToken}});
-      const data=await res.json();
-      const file=data.files?.[0];
+      const data=await res.json();const file=data.files?.[0];
       if(!file){toast("⚠ No backups found");return;}
       const res2=await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{headers:{Authorization:"Bearer "+driveAccessToken}});
       const restored=await res2.json();
-      state=restored;await save();render();
-      toast("♻ Restored latest backup");
+      state=restored;await save();toast("♻ Restored latest backup");
     }
 
-    // === Toast ===
-    const toast = (msg) => {
-      const t = document.getElementById('toast');
-      t.textContent = msg; t.classList.add('show');
-      clearTimeout(t._hide); t._hide=setTimeout(()=>t.classList.remove('show'),2000);
+    // === Logo Upload ===
+    document.getElementById("uploadLogoBtn").onclick=()=>document.getElementById("logoUpload").click();
+    document.getElementById("logoUpload").onchange=async(e)=>{
+      const file=e.target.files[0];
+      if(!file) return;
+      const fileRef=ref(storage,"logo/"+file.name);
+      await uploadBytes(fileRef,file);
+      state.logoUrl=await getDownloadURL(fileRef);
+      save();render();
     };
-
-    // === Render Functions ===
-    const boards=document.getElementById('boards');
-
-    function render(){
-      boards.innerHTML='';
-      state.order.forEach((name,i)=>{
-        const p=state.projects[name];
-        if(p) boards.appendChild(renderBoard(p,i));
-      });
-      save();
-    }
-
-    function renderBoard(p,idx){
-      const frag=document.getElementById('boardTemplate').content.cloneNode(true);
-      const b=frag.querySelector('.board'); b.dataset.project=p.name;
-      frag.querySelector('.index-badge').textContent=idx+1;
-      frag.querySelector('.project-name').textContent=p.name;
-      const cols=frag.querySelector('.columns');
-      if(p.collapsed) cols.style.display="none";
-
-      frag.querySelector('.collapse-toggle').onclick=()=>{p.collapsed=!p.collapsed;render();};
-      frag.querySelector('.move-up').onclick=()=>{if(idx>0){[state.order[idx-1],state.order[idx]]=[state.order[idx],state.order[idx-1]];render();}};
-      frag.querySelector('.move-down').onclick=()=>{if(idx<state.order.length-1){[state.order[idx+1],state.order[idx]]=[state.order[idx],state.order[idx+1]];render();}};
-      frag.querySelector('.delete-board').onclick=()=>{const pw=prompt("Enter GODMODE! password");if(pw==="GODMODE!"){delete state.projects[p.name];state.order=state.order.filter(x=>x!==p.name);render();}};
-
-      p.columns.forEach(c=>{
-        const col=document.getElementById('columnTemplate').content.cloneNode(true);
-        col.querySelector('.col-name').textContent=c.name;
-        const colEl=col.querySelector('.column'); colEl.dataset.colId=c.id;
-        colEl.ondragover=(e)=>{e.preventDefault();colEl.classList.add('drag-over');};
-        colEl.ondragleave=()=>colEl.classList.remove('drag-over');
-        colEl.ondrop=(e)=>{e.preventDefault();colEl.classList.remove('drag-over');const tid=e.dataTransfer.getData("text");const task=Object.values(p.tasks).find(t=>t.id===tid);if(task){task.colId=c.id;save();render();}};
-        Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{colEl.appendChild(renderTask(p,t));});
-        cols.appendChild(col);
-      });
-
-      frag.querySelector('.add-column').onclick=()=>{const name=prompt("Column name?");if(name){p.columns.push({id:uid(),name});save();render();}};
-      return frag;
-    }
-
+        // === Render Task ===
     function renderTask(p,t){
       const frag=document.getElementById('taskTemplate').content.cloneNode(true);
       const card=frag.querySelector('.task'); card.dataset.id=t.id;
+
       frag.querySelector('.t-title').textContent=t.title;
       frag.querySelector('.t-details').textContent=t.details||'';
 
-      // Delete
-      frag.querySelector('.delete-btn').onclick=()=>{if(confirm('Delete task?')){delete p.tasks[t.id];save();render();}};
+      // Links
+      const linksDiv=frag.querySelector('.t-links');
+      (t.links||[]).forEach(l=>{
+        const a=document.createElement('a');
+        a.href=l.startsWith("http") ? l : "https://" + l;
+        a.textContent=l;
+        a.target="_blank";
+        linksDiv.appendChild(a);
+      });
 
-      // Drag
-      card.ondragstart=(e)=>{e.dataTransfer.setData("text",t.id);};
+      // Attachments
+      const attDiv=frag.querySelector('.t-attachments');
+      (t.attachments||[]).forEach(att=>{
+        if(att.type && att.type.startsWith("image/")){
+          const img=document.createElement('img');
+          img.src=att.url;
+          img.alt=att.name;
+          attDiv.appendChild(img);
+        } else {
+          const a=document.createElement('a');
+          a.href=att.url;
+          a.textContent=att.name;
+          a.target="_blank";
+          attDiv.appendChild(a);
+        }
+      });
+
+      // Checklist
+      const cl=frag.querySelector('.checklist');
+      (t.checklist||[]).forEach(item=>{
+        const lbl=document.createElement('label');
+        if(item.done) lbl.classList.add('done');
+        const cb=document.createElement('input');
+        cb.type="checkbox"; cb.checked=!!item.done;
+        cb.onchange=()=>{ item.done=cb.checked; save(); render(); };
+        lbl.appendChild(cb);
+        lbl.append(item.text);
+        cl.appendChild(lbl);
+      });
+
+      // Delete
+      frag.querySelector('.delete-btn').onclick=()=>{
+        if(confirm("Delete this task?")){
+          delete p.tasks[t.id];
+          save(); render();
+        }
+      };
+
+      // Dragging
+      card.ondragstart=(e)=>{ e.dataTransfer.setData("text",t.id); };
+
+      // Edit
+      card.onclick=(e)=>{
+        if(e.target.classList.contains("delete-btn")) return;
+        openEditDialog(p,t);
+      };
+
+      // Assignee Badge
+      const badge=frag.querySelector('.assignee-badge');
+      if(t.assignee){
+        const av=document.createElement("div");
+        av.className="avatar";
+        if(t.avatarUrl) av.style.backgroundImage=`url(${t.avatarUrl})`;
+        else av.textContent=t.assignee[0].toUpperCase();
+        av.style.background=t.assigneeColor||"#555";
+        badge.appendChild(av);
+        badge.append(t.assignee);
+      }
 
       // Timer
       const timer=frag.querySelector('.timer');
       if(!t.created) t.created=Date.now();
       const age=Date.now()-t.created;
       const hours=Math.floor(age/3600000);
+      const days=Math.floor(age/86400000);
       timer.textContent=`⏱ ${hours}h`;
       if(age>24*3600000){
-        timer.style.color="red";
+        timer.style.color=`rgb(${Math.min(255,150+days*20)},0,0)`;
       }
 
       return frag;
@@ -267,8 +341,7 @@
     // === Task Dialog ===
     const taskDialog=document.getElementById('taskDialog');
     const addTaskBtn=document.getElementById('addTaskBtn');
-    addTaskBtn.onclick=()=>{openEditDialog();};
-
+    addTaskBtn.onclick=()=>{ openEditDialog(); };
     document.getElementById('cancelCreate').onclick=()=>taskDialog.close();
 
     function openEditDialog(p=null,t=null){
@@ -277,6 +350,8 @@
       document.getElementById('title').value=t?.title||"";
       document.getElementById('project').value=p?.name||"";
       document.getElementById('assignee').value=t?.assignee||"";
+      document.getElementById('assigneeColor').value=t?.assigneeColor||"#555555";
+      document.getElementById('avatarUrl').value=t?.avatarUrl||"";
       document.getElementById('details').value=t?.details||"";
       taskDialog.showModal();
     }
@@ -286,7 +361,16 @@
       const id=document.getElementById('editId').value||uid();
       const project=document.getElementById('project').value.trim();
       if(!state.projects[project]){
-        state.projects[project]={name:project,columns:[{id:"todo",name:"To Do"},{id:"doing",name:"Doing"},{id:"done",name:"Done"}],tasks:{},color:"#fff"};
+        state.projects[project]={
+          name:project,
+          columns:[
+            {id:"todo",name:"To Do"},
+            {id:"doing",name:"Doing"},
+            {id:"done",name:"Done"}
+          ],
+          tasks:{},
+          color:"#fff"
+        };
         state.order.push(project);
       }
       const p=state.projects[project];
@@ -295,13 +379,25 @@
         title:document.getElementById('title').value,
         details:document.getElementById('details').value,
         assignee:document.getElementById('assignee').value,
-        created:Date.now(),
+        assigneeColor:document.getElementById('assigneeColor').value,
+        avatarUrl:document.getElementById('avatarUrl').value,
+        checklist:[...document.querySelectorAll('#checklistContainer .check-input input[type="text"]')]
+                    .map(i=>({text:i.value,done:false})).filter(i=>i.text),
+        links:[...document.querySelectorAll('#linksContainer input[type="url"]')]
+                    .map(i=>i.value).filter(Boolean),
+        attachments:[],
+        created:t?.created||Date.now(),
         colId:p.tasks[id]?.colId||"todo"
       };
+      // File uploads
+      const files=[...document.getElementById('attachments').files];
+      task.attachments=files.map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
+
       p.tasks[id]=task;
-      save();render();
+      save(); render();
       taskDialog.close();
     };
+
   </script>
 </body>
 </html>
