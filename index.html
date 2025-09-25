@@ -43,6 +43,7 @@
     #taskDialog .actions{display:flex;justify-content:flex-end;gap:10px}
     #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#111;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s}
     #toast.show{opacity:1}
+    #headerLogo img{max-height:60px;object-fit:contain}
   </style>
 </head>
 <body>
@@ -52,6 +53,7 @@
         <div id="headerLogo"></div>
       </div>
       <div class="right">
+        <!-- Sign in/out buttons will be injected here -->
         <button id="uploadLogoBtn" class="btn">🖼 Upload Logo</button>
         <input type="file" id="logoUpload" accept="image/*" style="display:none">
         <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
@@ -137,7 +139,7 @@
     import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-storage.js";
     import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
-    // === Firebase Config (your live project) ===
+    // === Firebase Config (your project) ===
     const firebaseConfig = {
       apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
       authDomain: "kanben-acutesoft.firebaseapp.com",
@@ -169,7 +171,7 @@
     let state = { projects:{}, order:[], logoUrl:"" };
     const uid = () => Math.random().toString(36).slice(2,9);
 
-    // === Auth Buttons (created dynamically so header stays clean) ===
+    // === Inject Auth Buttons ===
     const rightHeader = document.querySelector(".right");
     const signInBtn = document.createElement("button");
     signInBtn.className = "btn"; signInBtn.id = "signInBtn"; signInBtn.textContent = "🔑 Sign In with Google";
@@ -226,8 +228,6 @@
       if(state.logoUrl){
         const img = document.createElement("img");
         img.src = state.logoUrl;
-        img.style.maxHeight = "60px";
-        img.style.objectFit = "contain";
         logoContainer.appendChild(img);
         uploadBtn.style.display = "none";
         logoContainer.onclick = ()=> logoInput.click();
@@ -318,7 +318,7 @@
       }catch(e){ console.error(e); toast("Restore failed"); }
     };
 
-    // Expose a tiny bridge for Part 3
+    // Expose minimal bridge for Part 3
     window.__app = {
       db, storage, auth,
       save,
@@ -617,23 +617,33 @@
         })).filter(x=>x.text)
       };
 
-      // Avatar file upload (optional)
+      // Avatar file upload (optional, non-blocking)
       const avatarFile = document.getElementById("avatarFile").files[0];
       if(avatarFile){
-        const avRef = ref(window.__app.storage, `avatars/${id}/${avatarFile.name}`);
-        await uploadBytes(avRef, avatarFile);
-        task.avatarUrl = await getDownloadURL(avRef);
+        try{
+          const avRef = ref(window.__app.storage, `avatars/${id}/${avatarFile.name}`);
+          await uploadBytes(avRef, avatarFile);
+          task.avatarUrl = await getDownloadURL(avRef);
+        }catch(err){
+          console.error("Avatar upload failed:", err);
+          toast("⚠ Avatar upload failed, saving without it");
+        }
       }
 
-      // Attachments upload (append)
+      // Attachments upload (append, non-blocking per file)
       const files = document.getElementById("attachments").files;
       const existing = prev.attachments || [];
       const appended = [];
       for(const f of files){
-        const aRef = ref(window.__app.storage, `attachments/${id}/${f.name}`);
-        await uploadBytes(aRef, f);
-        const url = await getDownloadURL(aRef);
-        appended.push({ name:f.name, url, type:f.type||"" });
+        try{
+          const aRef = ref(window.__app.storage, `attachments/${id}/${f.name}`);
+          await uploadBytes(aRef, f);
+          const url = await getDownloadURL(aRef);
+          appended.push({ name:f.name, url, type:f.type||"" });
+        }catch(err){
+          console.error("Attachment upload failed:", err);
+          toast(`⚠ Failed: ${f.name}`);
+        }
       }
       task.attachments = [...existing, ...appended];
 
@@ -644,7 +654,7 @@
       toast("✅ Task saved");
     };
 
-    // Bootstrap: show logo slot even before login
+    // Bootstrap initial logo (boards will appear after login via onSnapshot)
     window.__app.renderLogo();
   </script>
 </body>
