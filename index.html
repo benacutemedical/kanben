@@ -50,11 +50,12 @@
     <div class="wrap">
       <div class="left">
         <div id="headerLogo"></div>
-        <button id="uploadLogoBtn" class="btn">📷 Upload Logo</button>
-        <input type="file" id="logoUpload" accept="image/*" style="display:none">
-        <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
       </div>
       <div class="right">
+        <button id="uploadLogoBtn" class="btn">🖼 Upload Logo</button>
+        <input type="file" id="logoUpload" accept="image/*" style="display:none">
+        <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
+        <button id="connectDrive" class="btn">🔗 Connect Drive</button>
         <button id="backupNow" class="btn" disabled>💾 Backup</button>
         <button id="restoreBackup" class="btn" disabled>♻ Restore</button>
       </div>
@@ -154,7 +155,7 @@
     const auth = getAuth(app);
     const provider = new GoogleAuthProvider();
 
-    // Single document store for now
+    // Single document for now
     const kanbanRef = doc(db, "kanban", "prod");
 
     // === UI Helpers ===
@@ -168,38 +169,31 @@
     let state = { projects:{}, order:[], logoUrl:"" };
     const uid = () => Math.random().toString(36).slice(2,9);
 
-    // === Auth Buttons ===
+    // === Auth Buttons (created dynamically so header stays clean) ===
     const rightHeader = document.querySelector(".right");
     const signInBtn = document.createElement("button");
-    signInBtn.className = "btn";
-    signInBtn.id = "signInBtn";
-    signInBtn.textContent = "🔑 Sign In with Google";
-    rightHeader.prepend(signInBtn);
-
+    signInBtn.className = "btn"; signInBtn.id = "signInBtn"; signInBtn.textContent = "🔑 Sign In with Google";
     const signOutBtn = document.createElement("button");
-    signOutBtn.className = "btn";
-    signOutBtn.id = "signOutBtn";
-    signOutBtn.textContent = "🚪 Sign Out";
-    signOutBtn.style.display = "none";
-    rightHeader.prepend(signOutBtn);
+    signOutBtn.className = "btn"; signOutBtn.id = "signOutBtn"; signOutBtn.textContent = "🚪 Sign Out"; signOutBtn.style.display="none";
+    rightHeader.prepend(signOutBtn); rightHeader.prepend(signInBtn);
 
-    signInBtn.onclick = async () => { try { await signInWithPopup(auth, provider); } catch(e){ console.error(e); toast("Auth error"); } };
-    signOutBtn.onclick = async () => { try { await signOut(auth); } catch(e){ console.error(e); toast("Sign-out failed"); } };
+    signInBtn.onclick = async ()=>{ try{ await signInWithPopup(auth, provider); }catch(e){ console.error(e); toast("Auth error"); } };
+    signOutBtn.onclick = async ()=>{ try{ await signOut(auth); }catch(e){ console.error(e); toast("Sign-out failed"); } };
 
-    // === Firestore Sync (guarded by auth) ===
+    // === Firestore Save (guarded by auth) ===
     async function save(){
       if(!auth.currentUser){ console.warn("Not signed in; skipping save"); return; }
-      try { await setDoc(kanbanRef, state); }
+      try{ await setDoc(kanbanRef, state); }
       catch(e){ console.error("Save failed:", e); toast("Save failed"); }
     }
 
-    // Start listening after auth, otherwise we risk permission errors
+    // === Live sync after login ===
     let unsub = null;
     onAuthStateChanged(auth, user => {
       if(user){
-        signInBtn.style.display = "none";
-        signOutBtn.style.display = "inline-block";
-        document.getElementById("boards").style.display = "flex";
+        signInBtn.style.display="none";
+        signOutBtn.style.display="inline-block";
+        document.getElementById("boards").style.display="flex";
         toast("✅ Logged in as " + (user.email || "user"));
 
         if(!unsub){
@@ -208,24 +202,21 @@
               state = snap.data();
               render();
             } else {
-              // Initialize empty default doc
               state = { projects:{}, order:[], logoUrl:"" };
-              save();
-              render();
+              save(); render();
             }
           }, (err)=>{ console.error("onSnapshot error", err); toast("Read error"); });
         }
       } else {
-        // Signed out
-        signInBtn.style.display = "inline-block";
-        signOutBtn.style.display = "none";
-        document.getElementById("boards").style.display = "none";
+        signInBtn.style.display="inline-block";
+        signOutBtn.style.display="none";
+        document.getElementById("boards").style.display="none";
         toast("❌ Signed out");
         if(unsub){ unsub(); unsub=null; }
       }
     });
 
-    // === Logo upload (hide button after upload; click logo to replace) ===
+    // === Logo upload (global; hide button when set; click logo to replace) ===
     const logoContainer = document.getElementById("headerLogo");
     const uploadBtn = document.getElementById("uploadLogoBtn");
     const logoInput = document.getElementById("logoUpload");
@@ -239,15 +230,14 @@
         img.style.objectFit = "contain";
         logoContainer.appendChild(img);
         uploadBtn.style.display = "none";
-        // Click logo to replace
-        logoContainer.onclick = () => logoInput.click();
+        logoContainer.onclick = ()=> logoInput.click();
       } else {
         uploadBtn.style.display = "inline-block";
         logoContainer.onclick = null;
       }
     }
 
-    uploadBtn.onclick = () => logoInput.click();
+    uploadBtn.onclick = ()=> logoInput.click();
     logoInput.onchange = async (e)=>{
       const file = e.target.files[0];
       if(!file) return;
@@ -266,7 +256,6 @@
     const GOOGLE_CLIENT_ID = "21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com";
     let driveAccessToken = null, tokenClient = null;
 
-    // Load Google Identity Services
     const loadGIS = () => new Promise((resolve)=>{
       const s = document.createElement("script");
       s.src = "https://accounts.google.com/gsi/client";
@@ -279,7 +268,7 @@
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: "https://www.googleapis.com/auth/drive.file",
-      callback: (t) => {
+      callback: (t)=>{
         driveAccessToken = t.access_token;
         document.getElementById("backupNow").disabled = false;
         document.getElementById("restoreBackup").disabled = false;
@@ -287,7 +276,9 @@
       }
     });
 
-    // Wire backup buttons
+    // Connect Drive button
+    document.getElementById("connectDrive").onclick = ()=> tokenClient.requestAccessToken();
+
     document.getElementById("backupNow").onclick = async ()=>{
       if(!auth.currentUser){ toast("Sign in first"); return; }
       if(!driveAccessToken){ tokenClient.requestAccessToken(); return; }
@@ -299,8 +290,8 @@
         form.append("file", blob);
         await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{
           method:"POST",
-          headers: { "Authorization":"Bearer "+driveAccessToken },
-          body: form
+          headers:{ "Authorization":"Bearer "+driveAccessToken },
+          body:form
         });
         toast("💾 Backup saved to Drive");
       }catch(e){ console.error(e); toast("Backup failed"); }
@@ -311,13 +302,13 @@
       if(!driveAccessToken){ tokenClient.requestAccessToken(); return; }
       try{
         const res = await fetch("https://www.googleapis.com/drive/v3/files?q=name contains 'kanban-backup'&orderBy=createdTime desc&fields=files(id,name)&pageSize=1",{
-          headers:{ Authorization: "Bearer "+driveAccessToken }
+          headers:{ Authorization:"Bearer "+driveAccessToken }
         });
         const data = await res.json();
         const file = data.files?.[0];
         if(!file){ toast("No backups found"); return; }
         const res2 = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{
-          headers:{ Authorization: "Bearer "+driveAccessToken }
+          headers:{ Authorization:"Bearer "+driveAccessToken }
         });
         const restored = await res2.json();
         state = restored;
@@ -327,14 +318,20 @@
       }catch(e){ console.error(e); toast("Restore failed"); }
     };
 
-    // Expose these so Part 3 can call them
-    window.__app = { db, storage, auth, save, stateRef:()=>state, setState:(s)=>state=s, renderLogo };
+    // Expose a tiny bridge for Part 3
+    window.__app = {
+      db, storage, auth,
+      save,
+      stateRef: ()=>state,
+      setState: (s)=> state = s,
+      renderLogo
+    };
         // === Render & UI ===
     const boards = document.getElementById("boards");
 
     function render(){
       // Logo
-      renderLogo();
+      window.__app.renderLogo();
 
       // Boards
       boards.innerHTML = "";
@@ -381,24 +378,21 @@
       head.style.background = p.color || "#fff";
 
       // header actions
-      frag.querySelector(".boardColorPicker").value = p.color || "#ffffff";
-      frag.querySelector(".boardColorPicker").oninput = (e)=>{ p.color=e.target.value; window.__app.save(); render(); };
+      const colorInput = frag.querySelector(".boardColorPicker");
+      colorInput.value = p.color || "#ffffff";
+      colorInput.oninput = (e)=>{ p.color=e.target.value; window.__app.save(); render(); };
 
       frag.querySelector(".collapse-toggle").onclick = ()=>{
-        p.collapsed = !p.collapsed;
-        window.__app.save(); render();
+        p.collapsed = !p.collapsed; window.__app.save(); render();
       };
-
       frag.querySelector(".move-up").onclick = ()=>{
         const s=window.__app.stateRef();
         if(idx>0){ [s.order[idx-1], s.order[idx]] = [s.order[idx], s.order[idx-1]]; window.__app.save(); render(); }
       };
-
       frag.querySelector(".move-down").onclick = ()=>{
         const s=window.__app.stateRef();
         if(idx<s.order.length-1){ [s.order[idx+1], s.order[idx]] = [s.order[idx], s.order[idx+1]]; window.__app.save(); render(); }
       };
-
       frag.querySelector(".delete-board").onclick = ()=>{
         const pw = prompt("Enter GODMODE! password");
         if(pw==="GODMODE!"){
@@ -408,18 +402,17 @@
           window.__app.save(); render();
         }
       };
-
       frag.querySelector(".add-column").onclick = ()=>{
         const name = prompt("Column name?");
         if(name){
-          p.columns.push({id:uid(),name});
+          p.columns.push({id:uid(), name});
           window.__app.save(); render();
         }
       };
 
       // columns + tasks
       const cols = frag.querySelector(".columns");
-      if(p.collapsed){ cols.style.display="none"; }
+      if(p.collapsed) cols.style.display="none";
 
       p.columns.forEach(c=>{
         const cfrag = document.getElementById("columnTemplate").content.cloneNode(true);
@@ -427,11 +420,9 @@
         cfrag.querySelector(".col-name").textContent = c.name;
         col.dataset.colId = c.id;
 
-        // drag-over
+        // DnD within this board
         col.ondragover = (e)=>{ e.preventDefault(); col.classList.add("drag-over"); };
         col.ondragleave = ()=>{ col.classList.remove("drag-over"); };
-
-        // drop -> move task within this board
         col.ondrop = (e)=>{
           e.preventDefault(); col.classList.remove("drag-over");
           const tid = e.dataTransfer.getData("text");
@@ -442,7 +433,6 @@
           }
         };
 
-        // render tasks in this column
         Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{
           col.appendChild(renderTask(p,t));
         });
@@ -492,7 +482,7 @@
 
       // Checklist
       const cl = frag.querySelector(".checklist");
-      (t.checklist||[]).forEach((item,idx)=>{
+      (t.checklist||[]).forEach((item)=>{
         const label=document.createElement("label");
         const cb=document.createElement("input");
         cb.type="checkbox"; cb.checked=!!item.done;
@@ -511,12 +501,11 @@
       const days = Math.floor(age/86400000);
       h.textContent = `⏱ ${hours}h`;
       if(age > 24*3600000){
-        // turn red & intensify by day
         h.style.color = `rgb(${Math.min(255, 150 + days*20)}, 0, 0)`;
         h.style.fontWeight = "bold";
       }
 
-      // Assignee badge
+      // Assignee
       const ab = frag.querySelector(".assignee-badge");
       if(t.assignee){
         const av=document.createElement("div");
@@ -536,7 +525,7 @@
         window.__app.save(); render();
       };
 
-      // Drag + click edit
+      // DnD + edit
       card.ondragstart = (e)=>{ e.dataTransfer.setData("text", t.id); };
       card.onclick = (e)=>{ if(e.target.classList.contains("delete-btn")) return; openDialog(p, t); };
 
@@ -550,7 +539,6 @@
 
     document.getElementById("cancelCreate").onclick = ()=> dlg.close();
 
-    // Link & Checklist helpers
     function addLinkInput(url="", label=""){
       const wrap = document.createElement("div");
       wrap.className = "link-input";
@@ -579,7 +567,6 @@
 
     function openDialog(project=null, task=null){
       form.reset();
-      // clear dynamic lists
       document.querySelectorAll("#linksContainer .link-input").forEach(n=>n.remove());
       document.querySelectorAll("#checklistContainer .check-input").forEach(n=>n.remove());
       document.getElementById("attachments").value = null;
@@ -610,9 +597,8 @@
       const projName = (document.getElementById("project").value || "").trim();
       if(!projName){ toast("Project required"); return; }
 
-      const s = window.__app.stateRef();
       const proj = ensureProject(projName);
-      const prev = proj.tasks[id] || { id, created: Date.now(), colId: "todo" };
+      const prev = proj.tasks[id] || { id, created: Date.now(), colId: "todo", attachments:[], checklist:[], links:[] };
 
       const task = {
         ...prev,
@@ -628,11 +614,10 @@
         checklist: [...document.querySelectorAll("#checklistContainer .check-input")].map(div=>({
           text: div.querySelector(".text").value.trim(),
           done: div.querySelector(".done").checked
-        })).filter(x=>x.text),
-        attachments: prev.attachments || []
+        })).filter(x=>x.text)
       };
 
-      // Upload avatar file if chosen
+      // Avatar file upload (optional)
       const avatarFile = document.getElementById("avatarFile").files[0];
       if(avatarFile){
         const avRef = ref(window.__app.storage, `avatars/${id}/${avatarFile.name}`);
@@ -640,14 +625,17 @@
         task.avatarUrl = await getDownloadURL(avRef);
       }
 
-      // Upload attachments
+      // Attachments upload (append)
       const files = document.getElementById("attachments").files;
+      const existing = prev.attachments || [];
+      const appended = [];
       for(const f of files){
         const aRef = ref(window.__app.storage, `attachments/${id}/${f.name}`);
         await uploadBytes(aRef, f);
         const url = await getDownloadURL(aRef);
-        task.attachments.push({ name:f.name, url, type:f.type||"" });
+        appended.push({ name:f.name, url, type:f.type||"" });
       }
+      task.attachments = [...existing, ...appended];
 
       proj.tasks[id] = task;
       await window.__app.save();
@@ -656,8 +644,8 @@
       toast("✅ Task saved");
     };
 
-    // Initial UI bootstrap (renders logo if present; boards come via onSnapshot after login)
-    renderLogo();
+    // Bootstrap: show logo slot even before login
+    window.__app.renderLogo();
   </script>
 </body>
 </html>
