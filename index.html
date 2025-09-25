@@ -3,34 +3,35 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Zen Kanban To-Do (Cloud)</title>
+  <title>Zen Kanban To-Do (Cloud + Drive Backup)</title>
   <style>
     :root{--radius:12px}
     *{box-sizing:border-box}
     body{margin:0;font-family:sans-serif;background:#fafafa;color:#111}
     header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid #ddd}
-    .wrap{max-width:1100px;margin:0 auto;padding:16px;display:flex;justify-content:space-between;align-items:center}
-    .btn{cursor:pointer;border:1px solid #ccc;background:#fff;padding:6px 12px;border-radius:8px}
+    .wrap{max-width:1100px;margin:0 auto;padding:12px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .left,.right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .btn{cursor:pointer;border:1px solid #ccc;background:#fff;padding:6px 10px;border-radius:8px}
     .btn.primary{background:#000;color:#fff;border-color:#000}
     .btn:disabled{opacity:.5;cursor:not-allowed}
-    .boards{max-width:1100px;margin:24px auto;display:flex;flex-direction:column;gap:16px}
+    label.switch{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+    .boards{max-width:1100px;margin:20px auto;display:flex;flex-direction:column;gap:16px}
     .board{border:1px solid #ddd;border-radius:var(--radius);background:#fff}
     .board-head{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid #ddd}
-    .columns{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px}
+    .columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;padding:12px}
     .column{border:1px dashed #ccc;border-radius:10px;min-height:140px;padding:6px;display:flex;flex-direction:column;gap:6px}
     .column.drag-over{background:#eef6ff;border-color:#2b78ff}
     .task{border:1px solid #ddd;border-radius:10px;padding:8px;background:#fff;cursor:grab;position:relative}
     .task h3{margin:0 0 4px;font-size:14px}
     .delete-btn{position:absolute;top:2px;right:2px;border:none;background:none;color:#a00;font-size:16px;cursor:pointer}
     .t-links a{display:block;font-size:12px;word-break:break-all;color:#0b67c2}
-    .t-attachments img{max-width:100px;max-height:80px;border:1px solid #ddd;border-radius:6px}
+    .t-attachments img{max-width:100%;max-height:80px;border:1px solid #ddd;border-radius:6px}
     .t-attachments a{display:inline-block;font-size:12px}
     .checklist label{display:flex;align-items:center;gap:6px;font-size:12px}
     .checklist label.done{color:#777;text-decoration:line-through}
     .timer{font-size:12px;display:block;margin-top:4px}
     .assignee-badge{display:flex;align-items:center;gap:6px;margin-top:6px}
     .avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:bold;background:#555;overflow:hidden;background-size:cover;background-position:center}
-    /* Fully collapsed board hides all columns */
     .board.collapsed .columns{display:none}
 
     dialog{border:none;padding:0;border-radius:16px;box-shadow:0 20px 80px rgba(0,0,0,.18);}
@@ -43,19 +44,30 @@
     .link-input,.check-input{display:flex;gap:6px;margin-top:6px}
     .link-input input,.check-input input{flex:1}
     #taskDialog .actions{display:flex;justify-content:flex-end;gap:10px}
+
+    #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#111;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s}
+    #toast.show{opacity:1}
   </style>
 </head>
 <body>
   <header>
     <div class="wrap">
-      <div>Zen Kanban (Cloud)</div>
-      <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
+      <div class="left">
+        <strong>Zen Kanban (Cloud)</strong>
+        <button id="addTaskBtn" class="btn primary">➕ Add Task</button>
+      </div>
+      <div class="right">
+        <button id="driveSignIn" class="btn">🔑 Sign in to Drive</button>
+        <button id="backupNow" class="btn" disabled>💾 Backup Now</button>
+        <label class="switch"><input type="checkbox" id="autoBackup" disabled> Auto-backup</label>
+      </div>
     </div>
   </header>
 
   <main class="boards" id="boards"></main>
+  <div id="toast"></div>
 
-  <!-- Create/Edit Task -->
+  <!-- Task Dialog -->
   <dialog id="taskDialog">
     <form>
       <input type="hidden" id="editId">
@@ -83,7 +95,7 @@
     </form>
   </dialog>
 
-  <!-- TEMPLATES -->
+  <!-- Templates -->
   <template id="boardTemplate">
     <section class="board">
       <div class="board-head">
@@ -94,8 +106,8 @@
         <div style="display:flex;align-items:center;gap:8px">
           <button class="move-up btn" title="Move board up">▲</button>
           <button class="move-down btn" title="Move board down">▼</button>
-          <button class="collapse-toggle btn" title="Collapse/Expand">▾ Collapse</button>
-          <button class="add-column btn" title="Add a new column">＋ Column</button>
+          <button class="collapse-toggle btn" title="Collapse/Expand">▾</button>
+          <button class="add-column btn" title="Add a new column">＋</button>
           <input type="color" class="boardColorPicker" title="Board header color">
           <button class="delete-board btn" title="Erase board">❌</button>
         </div>
@@ -121,13 +133,12 @@
     </article>
   </template>
 
-  <!-- APP -->
+  <!-- Firebase + App -->
   <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-  window.addEventListener('DOMContentLoaded', () => {
-    // ===== Firebase =====
+    // ===== Firebase Config (yours) =====
     const firebaseConfig = {
       apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
       authDomain: "kanben-acutesoft.firebaseapp.com",
@@ -137,25 +148,67 @@
       appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
       measurementId: "G-GND9Q3PN18"
     };
+
+    // ===== Google Drive OAuth (GIS) =====
+    const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com"; // <-- replace
+    let driveAccessToken = null;
+    let tokenClient = null;
+    let autoBackup = false;
+    let lastBackupAt = 0;
+    const loadGIS = () => new Promise(res => {
+      const s = document.createElement('script');
+      s.src = "https://accounts.google.com/gsi/client";
+      s.async = true; s.defer = true;
+      s.onload = res;
+      document.head.appendChild(s);
+    });
+
+    // ===== Toast =====
+    const toast = (msg) => {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      clearTimeout(t._hide); t._hide = setTimeout(()=>t.classList.remove('show'), 2000);
+    };
+
+    // ===== App State =====
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
-    const docRef = doc(db, "kanban", "shared");
 
-    // ===== State & helpers =====
+    // Use ?doc=staging for safe workspace; default 'prod'
+    const DOC_ID = new URLSearchParams(location.search).get('doc') || 'prod';
+    const docRef = doc(db, "kanban", DOC_ID);
+
     const state = { projects:{}, order:[] };
     const uid = () => Math.random().toString(36).slice(2,9);
+
     const save = async () => {
       try {
-        await setDoc(docRef, JSON.parse(JSON.stringify(state)), { merge:true });
+        await setDoc(docRef, JSON.parse(JSON.stringify(state)));
         console.log('[kanban] saved');
+        if (driveAccessToken && autoBackup) maybeBackup();
       } catch (e) { console.error('[kanban] save failed', e); }
     };
 
+    // ===== DOM =====
     const boards = document.getElementById('boards');
     const dialog = document.getElementById('taskDialog');
     const form = dialog.querySelector('form');
 
-    // ===== UI helpers for dialog =====
+    // ===== Helpers =====
+    const ensureProject = (name) => {
+      if (!state.projects[name]) {
+        state.projects[name] = {
+          name,
+          columns: [{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],
+          tasks: {},
+          color: '#eaeaea',
+          collapsed: false
+        };
+        state.order.push(name);
+      }
+      return state.projects[name];
+    };
+
     const addLinkInput = (value) => {
       const container = document.getElementById('linksContainer');
       const div = document.createElement('div'); div.className='link-input';
@@ -163,6 +216,7 @@
       const btn = document.createElement('button'); btn.type='button'; btn.textContent='✖'; btn.addEventListener('click',()=>div.remove());
       div.append(input, btn); container.appendChild(div);
     };
+
     const addCheckInput = (value) => {
       const container = document.getElementById('checklistContainer');
       const div = document.createElement('div'); div.className='check-input';
@@ -209,7 +263,7 @@
       frag.querySelector('.index-badge').textContent = idx + 1;
       frag.querySelector('.project-name').textContent = p.name;
 
-      // Header color
+      // header color
       head.style.background = p.color || '#eaeaea';
       const picker = frag.querySelector('.boardColorPicker');
       picker.value = p.color || '#eaeaea';
@@ -219,62 +273,48 @@
         await save();
       });
 
-      // Collapse/Expand (fully hides columns)
+      // collapse/expand
       const collapseBtn = frag.querySelector('.collapse-toggle');
       b.classList.toggle('collapsed', !!p.collapsed);
-      collapseBtn.textContent = p.collapsed ? '▸ Expand' : '▾ Collapse';
+      collapseBtn.textContent = p.collapsed ? '▸' : '▾';
       collapseBtn.addEventListener('click', async ()=>{
         p.collapsed = !p.collapsed;
-        render(); // optimistic
-        await save();
+        render(); await save();
       });
 
-      // Move Up/Down (arrow buttons)
+      // up/down buttons
       const upBtn = frag.querySelector('.move-up');
       const downBtn = frag.querySelector('.move-down');
       upBtn.disabled = idx === 0;
       downBtn.disabled = idx === state.order.length - 1;
-
-      upBtn.addEventListener('click', async () => {
+      upBtn.addEventListener('click', async ()=>{
         const i = state.order.indexOf(p.name);
-        if (i > 0) {
-          const arr = state.order;
-          [arr[i-1], arr[i]] = [arr[i], arr[i-1]];
-          render(); await save();
-        }
+        if (i > 0) {[state.order[i-1], state.order[i]] = [state.order[i], state.order[i-1]]; render(); await save();}
       });
-
-      downBtn.addEventListener('click', async () => {
+      downBtn.addEventListener('click', async ()=>{
         const i = state.order.indexOf(p.name);
-        if (i > -1 && i < state.order.length - 1) {
-          const arr = state.order;
-          [arr[i], arr[i+1]] = [arr[i+1], arr[i]];
-          render(); await save();
-        }
+        if (i > -1 && i < state.order.length-1) {[state.order[i], state.order[i+1]] = [state.order[i+1], state.order[i]]; render(); await save();}
       });
 
-      // Add Column
-      const addColBtn = frag.querySelector('.add-column');
-      addColBtn.addEventListener('click', async ()=>{
-        const name = prompt('New column name?', 'Backlog');
-        if(!name) return;
-        p.columns = p.columns || [];
-        p.columns.push({ id: uid(), name: name.trim() });
-        render(); // show new column right away
-        await save();
-      });
-
-      // Delete board (GODMODE!)
+      // delete board (GODMODE!)
       frag.querySelector('.delete-board').addEventListener('click', async () => {
         const pwd = prompt("Enter GODMODE! password to erase this board");
         if (pwd !== "GODMODE!") return;
         delete state.projects[p.name];
         state.order = state.order.filter(n => n !== p.name);
-        render(); // optimistic
-        await save();
+        render(); await save();
       });
 
-      // Columns
+      // add column
+      frag.querySelector('.add-column').addEventListener('click', async ()=>{
+        const name = prompt('New column name?', 'Backlog');
+        if(!name) return;
+        p.columns = p.columns || [];
+        p.columns.push({ id: uid(), name: name.trim() });
+        render(); await save();
+      });
+
+      // columns
       const cols = frag.querySelector('.columns');
       p.columns.forEach(c => {
         const col = document.getElementById('columnTemplate').content.cloneNode(true);
@@ -283,7 +323,7 @@
         colEl.dataset.colid = c.id;
         colEl.dataset.project = p.name;
 
-        // Drop target for tasks (cross-board supported)
+        // drop target for tasks (supports cross-board)
         colEl.addEventListener('dragover', e => {
           e.preventDefault(); colEl.classList.add('drag-over');
         });
@@ -291,7 +331,6 @@
         colEl.addEventListener('drop', async e => {
           e.preventDefault(); colEl.classList.remove('drag-over');
 
-          // Robust payload (JSON plus legacy)
           let tid, srcName;
           const plain = e.dataTransfer.getData('text/plain');
           try { const obj = JSON.parse(plain); tid = obj?.tid; srcName = obj?.project; } catch {}
@@ -301,13 +340,13 @@
           const srcP = state.projects[srcName];
           if (!srcP || !srcP.tasks || !srcP.tasks[tid]) return;
 
+          // GODMODE to move into Completed
           if (c.name === "Completed") {
             const pwd = prompt("Enter GODMODE! password to move task to Completed");
             if (pwd !== "GODMODE!") return;
           }
 
           const task = srcP.tasks[tid];
-          // Move across boards if necessary
           if (srcName !== p.name) {
             delete srcP.tasks[tid];
             if (!p.tasks) p.tasks = {};
@@ -315,11 +354,10 @@
           }
           task.colId = c.id;
 
-          render(); // optimistic
-          await save();
+          render(); await save();
         });
 
-        // Render tasks for this column
+        // render tasks for this column
         Object.values(p.tasks || {}).forEach(t => {
           const targetCol = t.colId || p.columns[0].id;
           if (targetCol === c.id) colEl.appendChild(renderTask(p, t));
@@ -338,7 +376,7 @@
       frag.querySelector('.t-title').textContent = t.title;
       frag.querySelector('.t-details').textContent = t.details || '';
 
-      // Links (no https required)
+      // links (https optional)
       const linksDiv = frag.querySelector('.t-links');
       (t.links || []).forEach(l => {
         const a = document.createElement('a');
@@ -347,7 +385,7 @@
         linksDiv.appendChild(a);
       });
 
-      // Attachments (session previews if uploaded)
+      // attachments (blob previews for images)
       const attDiv = frag.querySelector('.t-attachments');
       (t.attachments || []).forEach(att => {
         if (att.type && att.type.startsWith('image/')) {
@@ -359,7 +397,7 @@
         }
       });
 
-      // Checklist ("Tasks")
+      // checklist ("Tasks")
       const cl = frag.querySelector('.checklist');
       (t.checklist || []).forEach(item => {
         const lbl = document.createElement('label');
@@ -368,14 +406,13 @@
         cb.addEventListener('change', async () => {
           item.done = cb.checked;
           lbl.classList.toggle('done', cb.checked);
-          render(); // optimistic
-          await save();
+          render(); await save();
         });
         lbl.append(cb, document.createTextNode(item.text));
         cl.appendChild(lbl);
       });
 
-      // Timer (redder after 24h, brighter each day)
+      // timer
       const timerEl = frag.querySelector('.timer');
       const tick = () => {
         if (!t.createdAt) return;
@@ -391,7 +428,7 @@
       };
       tick(); setInterval(tick, 60000);
 
-      // Assignee badge
+      // assignee badge
       const badge = frag.querySelector('.assignee-badge');
       if (t.assignee) {
         const av = document.createElement('div'); av.className = 'avatar';
@@ -401,23 +438,22 @@
         badge.append(av, name);
       }
 
-      // Delete task
+      // delete
       frag.querySelector('.delete-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm('Delete this task?')) {
           delete p.tasks[t.id];
-          render(); // optimistic
-          await save();
+          render(); await save();
         }
       });
 
-      // Edit task
+      // edit
       card.addEventListener('click', e => {
         if (e.target.classList.contains('delete-btn')) return;
         openEditDialog(p, t);
       });
 
-      // Drag payload (robust JSON + legacy keys)
+      // drag payload
       card.addEventListener('dragstart', e => {
         const payload = JSON.stringify({ tid: t.id, project: p.name });
         e.dataTransfer.setData('text/plain', payload);
@@ -428,7 +464,7 @@
       return frag;
     };
 
-    // ===== Firestore snapshot -> state/bootstrap =====
+    // ===== Snapshot → state =====
     onSnapshot(docRef, snap => {
       if (snap.exists()) {
         const data = snap.data();
@@ -436,7 +472,7 @@
         state.order = data.order || Object.keys(state.projects);
         render();
       } else {
-        // Create initial doc
+        // bootstrap first doc
         const sample = {
           name:'Sample Project',
           columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}],
@@ -450,12 +486,11 @@
           createdAt:Date.now(), colId: sample.columns[0].id
         };
         state.projects[sample.name] = sample; state.order = [sample.name];
-        render(); // show immediately
-        save();   // persist
+        render(); save();
       }
     });
 
-    // ===== Global listeners =====
+    // ===== Global UI =====
     document.getElementById('addTaskBtn').addEventListener('click', () => openEditDialog());
     document.getElementById('cancelCreate').addEventListener('click', () => dialog.close());
     dialog.addEventListener('click', (e) => {
@@ -463,7 +498,7 @@
       if (e.target?.id === 'addCheckBtn') { e.preventDefault(); addCheckInput(''); }
     });
 
-    // ===== Form submit (create/update) — closes dialog even if save fails =====
+    // Create / Update submit
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('editId').value;
@@ -483,17 +518,11 @@
       const checklist = [...document.querySelectorAll('#checklistContainer .check-input input')].map(i=>({text:i.value.trim(),done:false})).filter(i=>i.text);
       const files = [...document.getElementById('attachments').files].map(f=>({name:f.name,type:f.type,url:URL.createObjectURL(f)}));
 
-      // Ensure project exists
-      let proj = state.projects[projectName];
-      if (!proj) {
-        proj = { name:projectName, columns:[{id:uid(),name:'To Do'},{id:uid(),name:'In Progress'},{id:uid(),name:'Completed'}], tasks:{}, color:'#eaeaea', collapsed:false };
-        state.projects[projectName] = proj;
-        if (!state.order.includes(projectName)) state.order.push(projectName);
-      }
+      let proj = ensureProject(projectName);
 
       try {
         if (id) {
-          // Editing existing (may move across boards if project changed)
+          // edit (and possible move across boards)
           const fromProject = state.projects[originalProject] || proj;
           if (fromProject !== proj && fromProject?.tasks?.[id]) {
             const moving = fromProject.tasks[id];
@@ -504,21 +533,101 @@
           Object.assign(target, { title, details, assignee, assigneeColor, avatarUrl: avatarFinal, links, attachments: files, checklist });
           proj.tasks[id] = target;
         } else {
-          // New task
           const newId = uid();
           proj.tasks[newId] = {
             id:newId, title, details, assignee, assigneeColor, avatarUrl: avatarFinal,
             links, attachments: files, checklist, createdAt: Date.now(), colId: proj.columns[0].id
           };
         }
-        render();           // optimistic
-        await save();       // persist
+        render(); await save();
       } finally {
-        dialog.close();     // always close
+        dialog.close();
       }
     });
 
-  });
+    // ===== Google Drive Backups =====
+    await loadGIS();
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: (resp) => {
+        if (resp?.access_token) {
+          driveAccessToken = resp.access_token;
+          document.getElementById('backupNow').disabled = false;
+          document.getElementById('autoBackup').disabled = true; // enable after first manual backup succeeds
+          toast('Drive connected');
+        }
+      }
+    });
+
+    document.getElementById('driveSignIn').addEventListener('click', () => {
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    });
+
+    document.getElementById('backupNow').addEventListener('click', async () => {
+      try { await backupToDrive(); toast('Backup saved to Drive'); document.getElementById('autoBackup').disabled = false; }
+      catch (e) { console.error(e); toast('Backup failed'); }
+    });
+
+    document.getElementById('autoBackup').addEventListener('change', (e)=>{
+      autoBackup = e.target.checked;
+      toast(autoBackup ? 'Auto-backup ON' : 'Auto-backup OFF');
+    });
+
+    const maybeBackup = () => {
+      const now = Date.now();
+      if (!autoBackup || !driveAccessToken) return;
+      if (now - lastBackupAt < 60000) return; // throttle 60s
+      lastBackupAt = now;
+      backupToDrive().catch(err=>console.error('auto backup failed', err));
+    };
+
+    async function ensureBackupFolder() {
+      // Find or create "Zen Kanban Backups"
+      let r = await fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("name='Zen Kanban Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false") + '&fields=files(id,name)&pageSize=1', {
+        headers: { Authorization: 'Bearer ' + driveAccessToken }
+      });
+      const found = await r.json();
+      if (found?.files?.length) return found.files[0].id;
+
+      r = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Zen Kanban Backups', mimeType: 'application/vnd.google-apps.folder' })
+      });
+      const created = await r.json();
+      if (!created?.id) throw new Error('Folder create failed');
+      return created.id;
+    }
+
+    async function backupToDrive() {
+      if (!driveAccessToken) throw new Error('Not signed in');
+      const folderId = await ensureBackupFolder();
+      const ts = new Date().toISOString().replace(/[:.]/g,'-');
+      const metadata = {
+        name: `kanban-${DOC_ID}-backup-${ts}.json`,
+        mimeType: 'application/json',
+        parents: [folderId]
+      };
+      const payload = JSON.stringify(state);
+      const boundary = '-------314159265358979323846';
+      const delimiter = `\r\n--${boundary}\r\n`;
+      const closeDelim = `\r\n--${boundary}--`;
+
+      const body =
+        delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(metadata) +
+        delimiter + 'Content-Type: application/json\r\n\r\n' +
+        payload +
+        closeDelim;
+
+      const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'multipart/related; boundary=' + boundary },
+        body
+      });
+      if (!r.ok) throw new Error('Drive upload failed');
+    }
   </script>
 </body>
 </html>
