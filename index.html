@@ -131,213 +131,183 @@
   </template>
 
   <!-- Firebase + App -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-storage.js";
-    import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+ <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-storage.js";
+  import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
-    // === Firebase Config ===
-    const firebaseConfig = {
-      apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
-      authDomain: "kanben-acutesoft.firebaseapp.com",
-      projectId: "kanben-acutesoft",
-      storageBucket: "kanben-acutesoft.firebasestorage.app",
-      messagingSenderId: "637159945341",
-      appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
-      measurementId: "G-GND9Q3PN18"
-    };
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const storage = getStorage(app);
-    const kanbanRef = doc(db,"kanban","prod");
+  // === Firebase Config ===
+  const firebaseConfig = {
+    apiKey: "AIzaSyCdvzN-WZ-YNKfYCpuNk6nAWzriFbPHLjg",
+    authDomain: "kanben-acutesoft.firebaseapp.com",
+    projectId: "kanben-acutesoft",
+    storageBucket: "kanben-acutesoft.firebasestorage.app",
+    messagingSenderId: "637159945341",
+    appId: "1:637159945341:web:1c5dbd01eeff6422fd6d14",
+    measurementId: "G-GND9Q3PN18"
+  };
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+  const kanbanRef = doc(db, "kanban", "prod");
 
-    // === Auth ===
-    const auth = getAuth(app);
-    const provider = new GoogleAuthProvider();
-    const rightHeader = document.querySelector("header .right");
+  // === State ===
+  let state = { projects: {}, order: [] };
+  const uid = () => Math.random().toString(36).slice(2, 9);
+  async function save(){ await setDoc(kanbanRef, state); }
+  onSnapshot(kanbanRef, snap => { if(snap.exists()){ state=snap.data(); render(); } });
 
-    const signInBtn = document.createElement("button");
-    signInBtn.textContent = "🔑 Sign In with Google";
-    signInBtn.className = "btn";
-    rightHeader.appendChild(signInBtn);
+  // === Toast ===
+  const toast = (msg) => {
+    const t=document.getElementById('toast');
+    t.textContent=msg; t.classList.add('show');
+    clearTimeout(t._hide); t._hide=setTimeout(()=>t.classList.remove('show'),2000);
+  };
 
-    const signOutBtn = document.createElement("button");
-    signOutBtn.textContent = "🚪 Sign Out";
-    signOutBtn.className = "btn";
-    signOutBtn.style.display = "none";
-    rightHeader.appendChild(signOutBtn);
+  // === Auth ===
+  const auth = getAuth(app);
+  const provider = new GoogleAuthProvider();
+  const rightHeader = document.querySelector("header .right");
 
-    signInBtn.onclick = async () => { try { await signInWithPopup(auth, provider); } catch(e){ console.error(e); } };
-    signOutBtn.onclick = async () => { try { await signOut(auth); } catch(e){ console.error(e); } };
+  const signInBtn = document.createElement("button");
+  signInBtn.textContent = "🔑 Sign In with Google";
+  signInBtn.className = "btn";
+  rightHeader.appendChild(signInBtn);
 
-    onAuthStateChanged(auth, user => {
-      if(user){
-        signInBtn.style.display="none";
-        signOutBtn.style.display="inline-block";
-        document.getElementById("boards").style.display="flex";
-        toast("✅ Logged in as " + user.email);
-      } else {
-        signInBtn.style.display="inline-block";
-        signOutBtn.style.display="none";
-        document.getElementById("boards").style.display="none";
-        toast("❌ Signed out");
-      }
+  const signOutBtn = document.createElement("button");
+  signOutBtn.textContent = "🚪 Sign Out";
+  signOutBtn.className = "btn";
+  signOutBtn.style.display = "none";
+  rightHeader.appendChild(signOutBtn);
+
+  signInBtn.onclick = async () => { try { await signInWithPopup(auth, provider); } catch(e){ console.error(e); } };
+  signOutBtn.onclick = async () => { try { await signOut(auth); } catch(e){ console.error(e); } };
+
+  onAuthStateChanged(auth, user => {
+    if(user){
+      signInBtn.style.display="none";
+      signOutBtn.style.display="inline-block";
+      document.getElementById("boards").style.display="flex";
+      toast("✅ Logged in as " + user.email);
+    } else {
+      signInBtn.style.display="inline-block";
+      signOutBtn.style.display="none";
+      document.getElementById("boards").style.display="none";
+      toast("❌ Signed out");
+    }
+  });
+
+  // === Google Drive Backup + Restore ===
+  const GOOGLE_CLIENT_ID = "21758541847-btkft7unujq2dq56vd43vbpvlscv7ssn.apps.googleusercontent.com";
+  let driveAccessToken=null,tokenClient=null;
+
+  const loadGIS=()=>new Promise(res=>{
+    const s=document.createElement('script');
+    s.src="https://accounts.google.com/gsi/client";
+    s.async=true;s.defer=true;s.onload=res;
+    document.head.appendChild(s);
+  });
+  await loadGIS();
+
+  tokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:GOOGLE_CLIENT_ID,
+    scope:"https://www.googleapis.com/auth/drive.file",
+    callback:(t)=>{
+      driveAccessToken=t.access_token;
+      document.getElementById("backupNow").disabled=false;
+      document.getElementById("restoreBackup").disabled=false;
+      document.getElementById("autoBackup").disabled=false;
+      toast("Drive connected");
+    }
+  });
+
+  document.getElementById("driveSignIn").onclick=()=>tokenClient.requestAccessToken();
+  document.getElementById("backupNow").onclick=()=>doBackup();
+  document.getElementById("restoreBackup").onclick=()=>doRestore();
+
+  async function doBackup(){
+    const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+    const metadata={name:`kanban-backup-${new Date().toISOString()}.json`,mimeType:"application/json",parents:["root"]};
+    const form=new FormData();
+    form.append("metadata",new Blob([JSON.stringify(metadata)],{type:"application/json"}));
+    form.append("file",blob);
+    await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{
+      method:"POST",
+      headers:new Headers({"Authorization":"Bearer "+driveAccessToken}),
+      body:form
     });
-        // === Render Functions ===
-    const boards=document.getElementById('boards');
+    toast("💾 Backup saved to Drive");
+  }
 
-    function render(){
-      boards.innerHTML='';
-      state.order.forEach((name,i)=>{
-        const p=state.projects[name];
-        if(p) boards.appendChild(renderBoard(p,i));
-      });
-      save();
-    }
+  async function doRestore(){
+    if(!driveAccessToken) return alert("Sign in first!");
+    const res=await fetch("https://www.googleapis.com/drive/v3/files?q=name contains 'kanban-backup'&orderBy=createdTime desc&fields=files(id,name)&pageSize=1",{headers:{Authorization:"Bearer "+driveAccessToken}});
+    const data=await res.json();
+    const file=data.files?.[0];
+    if(!file){toast("⚠ No backups found");return;}
+    const res2=await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{headers:{Authorization:"Bearer "+driveAccessToken}});
+    const restored=await res2.json();
+    state=restored;await save();render();
+    toast("♻ Restored latest backup");
+  }
 
-    function renderBoard(p,idx){
-      const frag=document.getElementById('boardTemplate').content.cloneNode(true);
-      const b=frag.querySelector('.board'); b.dataset.project=p.name;
-      frag.querySelector('.index-badge').textContent=idx+1;
-      frag.querySelector('.project-name').textContent=p.name;
-      const cols=frag.querySelector('.columns');
-      if(p.collapsed) cols.style.display="none";
+  // === Render Functions ===
+  const boards=document.getElementById('boards');
 
-      frag.querySelector('.collapse-toggle').onclick=()=>{p.collapsed=!p.collapsed;render();};
-      frag.querySelector('.move-up').onclick=()=>{if(idx>0){[state.order[idx-1],state.order[idx]]=[state.order[idx],state.order[idx-1]];render();}};
-      frag.querySelector('.move-down').onclick=()=>{if(idx<state.order.length-1){[state.order[idx+1],state.order[idx]]=[state.order[idx],state.order[idx+1]];render();}};
-      frag.querySelector('.boardColorPicker').value=p.color||"#ffffff";
-      frag.querySelector('.boardColorPicker').oninput=(e)=>{p.color=e.target.value;b.querySelector('.board-head').style.background=p.color;save();};
-      frag.querySelector('.delete-board').onclick=()=>{const pw=prompt("Enter GODMODE! password");if(pw==="GODMODE!"){delete state.projects[p.name];state.order=state.order.filter(x=>x!==p.name);render();}};
+  function render(){
+    boards.innerHTML='';
+    state.order.forEach((name,i)=>{
+      const p=state.projects[name];
+      if(p) boards.appendChild(renderBoard(p,i));
+    });
+    save();
+  }
 
-      p.columns.forEach(c=>{
-        const col=document.getElementById('columnTemplate').content.cloneNode(true);
-        col.querySelector('.col-name').textContent=c.name;
-        const colEl=col.querySelector('.column'); colEl.dataset.colId=c.id;
-        colEl.ondragover=(e)=>{e.preventDefault();colEl.classList.add('drag-over');};
-        colEl.ondragleave=()=>colEl.classList.remove('drag-over');
-        colEl.ondrop=(e)=>{e.preventDefault();colEl.classList.remove('drag-over');const tid=e.dataTransfer.getData("text");const task=Object.values(p.tasks).find(t=>t.id===tid);if(task){task.colId=c.id;save();render();}};
-        Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{colEl.appendChild(renderTask(p,t));});
-        cols.appendChild(col);
-      });
+  function renderBoard(p,idx){
+    const frag=document.getElementById('boardTemplate').content.cloneNode(true);
+    const b=frag.querySelector('.board'); b.dataset.project=p.name;
+    frag.querySelector('.index-badge').textContent=idx+1;
+    frag.querySelector('.project-name').textContent=p.name;
+    const cols=frag.querySelector('.columns');
+    if(p.collapsed) cols.style.display="none";
 
-      frag.querySelector('.add-column').onclick=()=>{const name=prompt("Column name?");if(name){p.columns.push({id:uid(),name});save();render();}};
-      return frag;
-    }
+    frag.querySelector('.collapse-toggle').onclick=()=>{p.collapsed=!p.collapsed;render();};
+    frag.querySelector('.move-up').onclick=()=>{if(idx>0){[state.order[idx-1],state.order[idx]]=[state.order[idx],state.order[idx-1]];render();}};
+    frag.querySelector('.move-down').onclick=()=>{if(idx<state.order.length-1){[state.order[idx+1],state.order[idx]]=[state.order[idx],state.order[idx+1]];render();}};
+    frag.querySelector('.boardColorPicker').value=p.color||"#ffffff";
+    frag.querySelector('.boardColorPicker').oninput=(e)=>{p.color=e.target.value;b.querySelector('.board-head').style.background=p.color;save();};
+    frag.querySelector('.delete-board').onclick=()=>{const pw=prompt("Enter GODMODE! password");if(pw==="GODMODE!"){delete state.projects[p.name];state.order=state.order.filter(x=>x!==p.name);render();}};
 
-    function renderTask(p,t){
-      const frag=document.getElementById('taskTemplate').content.cloneNode(true);
-      const card=frag.querySelector('.task'); card.dataset.id=t.id;
-      frag.querySelector('.t-title').textContent=t.title;
-      frag.querySelector('.t-details').textContent=t.details||'';
+    p.columns.forEach(c=>{
+      const col=document.getElementById('columnTemplate').content.cloneNode(true);
+      col.querySelector('.col-name').textContent=c.name;
+      const colEl=col.querySelector('.column'); colEl.dataset.colId=c.id;
+      colEl.ondragover=(e)=>{e.preventDefault();colEl.classList.add('drag-over');};
+      colEl.ondragleave=()=>colEl.classList.remove('drag-over');
+      colEl.ondrop=(e)=>{e.preventDefault();colEl.classList.remove('drag-over');const tid=e.dataTransfer.getData("text");const task=Object.values(p.tasks).find(t=>t.id===tid);if(task){task.colId=c.id;save();render();}};
+      Object.values(p.tasks).filter(t=>t.colId===c.id).forEach(t=>{colEl.appendChild(renderTask(p,t));});
+      cols.appendChild(col);
+    });
 
-      // Links
-      const linksDiv=frag.querySelector('.t-links');
-      (t.links||[]).forEach(l=>{
-        const a=document.createElement('a');
-        a.href=l; a.textContent=l; linksDiv.appendChild(a);
-      });
+    frag.querySelector('.add-column').onclick=()=>{const name=prompt("Column name?");if(name){p.columns.push({id:uid(),name});save();render();}};
+    return frag;
+  }
 
-      // Attachments
-      const attDiv=frag.querySelector('.t-attachments');
-      (t.attachments||[]).forEach(att=>{
-        const a=document.createElement('a'); a.href=att.url; a.textContent=att.name; attDiv.appendChild(a);
-      });
+  function renderTask(p,t){
+    const frag=document.getElementById('taskTemplate').content.cloneNode(true);
+    const card=frag.querySelector('.task'); card.dataset.id=t.id;
+    frag.querySelector('.t-title').textContent=t.title;
+    frag.querySelector('.t-details').textContent=t.details||'';
 
-      // Checklist
-      const cl=frag.querySelector('.checklist');
-      (t.checklist||[]).forEach(item=>{
-        const lbl=document.createElement('label');
-        if(item.done) lbl.classList.add('done');
-        const cb=document.createElement('input');
-        cb.type='checkbox'; cb.checked=!!item.done;
-        cb.onchange=()=>{item.done=cb.checked;save();render();};
-        lbl.appendChild(cb); lbl.append(item.text); cl.appendChild(lbl);
-      });
+    // Delete
+    frag.querySelector('.delete-btn').onclick=()=>{if(confirm('Delete task?')){delete p.tasks[t.id];save();render();}};
 
-      // Delete
-      frag.querySelector('.delete-btn').onclick=()=>{if(confirm('Delete task?')){delete p.tasks[t.id];save();render();}};
+    // Drag + click edit
+    card.ondragstart=(e)=>{e.dataTransfer.setData("text",t.id);};
 
-      // Drag + click edit
-      card.ondragstart=(e)=>{e.dataTransfer.setData("text",t.id);};
-      card.onclick=(e)=>{if(e.target.classList.contains('delete-btn'))return;openEditDialog(p,t);};
-
-      // Assignee badge
-      const badge=frag.querySelector('.assignee-badge');
-      if(t.assignee){
-        const av=document.createElement('div'); av.className="avatar";
-        if(t.avatarUrl) av.style.backgroundImage=`url(${t.avatarUrl})`;
-        else av.textContent=t.assignee[0].toUpperCase();
-        av.style.background=t.assigneeColor||"#555";
-        badge.appendChild(av); badge.append(t.assignee);
-      }
-
-      // Timer
-      const timer=frag.querySelector('.timer');
-      if(!t.created) t.created=Date.now();
-      const age=Date.now()-t.created;
-      const hours=Math.floor(age/3600000);
-      const days=Math.floor(age/86400000);
-      timer.textContent=`⏱ ${hours}h`;
-      if(age>24*3600000){
-        timer.style.color=`rgb(${Math.min(255,150+days*20)},0,0)`;
-      }
-
-      return frag;
-    }
-
-    // === Task Dialog ===
-    const taskDialog=document.getElementById('taskDialog');
-    const addTaskBtn=document.getElementById('addTaskBtn');
-    addTaskBtn.onclick=()=>{openEditDialog();};
-
-    document.getElementById('cancelCreate').onclick=()=>taskDialog.close();
-
-    function openEditDialog(p=null,t=null){
-      document.getElementById('editId').value=t?.id||"";
-      document.getElementById('editProject').value=p?.name||"";
-      document.getElementById('title').value=t?.title||"";
-      document.getElementById('project').value=p?.name||"";
-      document.getElementById('assignee').value=t?.assignee||"";
-      document.getElementById('assigneeColor').value=t?.assigneeColor||"#555555";
-      document.getElementById('avatarUrl').value=t?.avatarUrl||"";
-      document.getElementById('details').value=t?.details||"";
-      taskDialog.showModal();
-    }
-
-    taskDialog.querySelector('form').onsubmit=(e)=>{
-      e.preventDefault();
-      const id=document.getElementById('editId').value||uid();
-      const project=document.getElementById('project').value.trim();
-      if(!state.projects[project]){
-        state.projects[project]={
-          name:project,
-          columns:[{id:"todo",name:"To Do"},{id:"doing",name:"Doing"},{id:"done",name:"Done"}],
-          tasks:{},
-          color:"#fff"
-        };
-        state.order.push(project);
-      }
-      const p=state.projects[project];
-      const task={
-        id,
-        title:document.getElementById('title').value,
-        details:document.getElementById('details').value,
-        assignee:document.getElementById('assignee').value,
-        assigneeColor:document.getElementById('assigneeColor').value,
-        avatarUrl:document.getElementById('avatarUrl').value,
-        checklist:[],
-        links:[],
-        attachments:[],
-        created:Date.now(),
-        colId:p.tasks[id]?.colId||"todo"
-      };
-      p.tasks[id]=task;
-      save();render();
-      taskDialog.close();
-    };
-
-  </script>
+    return frag;
+  }
+</script>
 </body>
 </html>
